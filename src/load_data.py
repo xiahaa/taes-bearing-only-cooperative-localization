@@ -419,7 +419,7 @@ def gen_simulation_data_taes():
     for i in range(p2_global.shape[1]):
         vec = p1_global[:,i] - p2_global[:,i]
         vec = vec / np.linalg.norm(vec)
-        bearing_computed[:, i] = vec
+        bearing_computed[:, i] = Ropt.dot(vec)
         
     bearing_angle = np.zeros((2, bearing_angle.shape[1]))
     for i in range(bearing_computed.shape[1]):
@@ -428,6 +428,7 @@ def gen_simulation_data_taes():
         theta = atan2(vec[1], vec[0])
         bearing_angle[:, i] = np.array([theta, phi])           
 
+    logger.info(bearing_angle)
     
     def from_bearingangle_to_bearing_vec(theta, phi):
         return np.array([cos(theta) * cos(phi), cos(phi) * sin(theta), sin(phi)])
