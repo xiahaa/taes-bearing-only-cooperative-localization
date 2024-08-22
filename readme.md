@@ -1,3 +1,32 @@
+# Bearing Only Solver
+This repository contains a Python implementation of a bearing-only solver. The solver is designed to compute the relative pose between two sets of points given their bearings.
+
+`bearing_only_solver`
+```python
+def bearing_only_solver(foler: str, file: str):
+    ...
+```
+
+Main function to solve the bearing-only problem. It loads the data, computes the necessary matrices, and solves for the relative pose.
+
+## Usage
+To use the bearing-only solver, run the `bearing_only_solver.py` script with the appropriate folder and file prefix:
+```python
+python bearing_only_solver.py
+```
+
+Make sure to update the folder and file prefix in the script as needed.
+
+## Dependencies
+- numpy
+- scipy
+- logging
+Install the dependencies using pip:
+```bash
+pip install numpy scipy
+```
+
+
 # Simulation Data Processing
 This project contains scripts to process and save simulation data. The main functionalities include loading, processing, and saving simulation data in a specific format.
 
