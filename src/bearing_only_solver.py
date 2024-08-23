@@ -2,6 +2,7 @@ import numpy as np
 import os
 import logging
 from math import sin, cos, tan, asin, acos, atan2, fabs, sqrt
+from typing import Optional
 
 logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
     datefmt='%Y-%m-%d:%H:%M:%S',
@@ -185,6 +186,95 @@ def bearing_only_solver(foler: str, file: str):
         logger.debug(f'Solution x: {x1}')
         t = x1[:3]        
         logger.debug(f't: {t}')
+
+
+
+class bgpnp():
+    def __init__(self) -> None:
+        pass
+    
+    @staticmethod
+    def define_control_points() -> np.ndarray:
+        """
+        Define control points.
+
+        Returns:
+            np.ndarray: A 4x3 matrix of control points.
+        """
+        Cw = np.array([
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+            [0, 0, 0]
+        ])
+        return Cw
+    
+    @staticmethod
+    def compute_alphas(Xw:np.ndarray, Cw:np.ndarray) -> np.ndarray:
+        """
+        Compute alphas (linear combination of the control points to represent the 3D points).
+
+        Args:
+            Xw (np.ndarray): 3D points, shape (n, 3).
+            Cw (np.ndarray): Control points, shape (4, 3).
+
+        Returns:
+            np.ndarray: Alphas.
+        """
+        n = Xw.shape[0]  # number of 3D points
+
+        # Generate auxiliary matrix to compute alphas
+        C = np.vstack((Cw.T, np.ones((1, 4)))) # 4x4
+        X = np.vstack((Xw.T, np.ones((1, n)))) # 4xn
+        Alph_ = np.linalg.inv(C) @ X # 4xn
+
+        Alph = Alph_.T # nx4
+        return Alph
+
+    @staticmethod
+    def prepare_data(p: np.ndarray, b: np.ndarray, Cw: Optional[np.ndarray]=None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Prepare data for the bearing-only solver.
+
+        Args:
+            Pts (np.ndarray): 3D points, shape (n, 3).
+            b (np.ndarray): bearing vector, shape (n, 3).
+            Cw (np.ndarray, optional): Control points. Defaults to None.
+
+        Returns:
+            tuple: M, Cw, Alph
+        """
+        if Cw is None:
+            Cw = bgpnp.define_control_points().T
+    
+        # Compute alphas (linear combination of the control points to represent the 3D points)
+        Alph = bgpnp.compute_alphas(p, Cw)
+    
+        # Compute M
+        M = compute_M(U.flatten(), Alph)
+    
+        return M, Cw, Alph
+
+    def compute_M(bearing: np.ndarray, Alph: np.ndarray) -> np.ndarray:
+        """
+        Compute the M matrix.
+
+        Args:
+            bearing (np.ndarray): bearing vector, shape (n, 3).
+            Alph (np.ndarray): Alphas, shape (n, 4).
+
+        Returns:
+            np.ndarray: M matrix.
+        """
+        
+        M = np.knron(Alph, np.eye(3)) # 3n x 12
+        
+        # ATTENTION U must be multiplied by K previously
+        M = np.kron(Alph, np.array([[1, 0, -1], [0, 1, -1]]))
+        M[:, [2, 5, 8, 11]] = M[:, [2, 5, 8, 11]] * (U[:, np.newaxis] @ np.ones((1, 4)))
+        
+        return M
+
 
     
 if __name__ == "__main__":
