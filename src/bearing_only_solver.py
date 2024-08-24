@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 
 logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
     datefmt='%Y-%m-%d:%H:%M:%S',
-    level=logging.DEBUG)
+    level=logging.INFO)
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +287,7 @@ class bgpnp():
         Returns:
             tuple: A tuple containing the rotation matrix (R), translation vector (T), and error (err).
         """
-        M, b, Alph, Cw = bgpnp.prepare_data(p1, p2, bearing)
+        M, b, Alph, Cw = bgpnp.prepare_data(p1, bearing, p2)
         Km = bgpnp.kernel_noise(M, b, dimker=4)
         R, t, err = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=True)
         
@@ -322,10 +322,16 @@ class bgpnp():
             np.ndarray: Alphas.
         """
         n = Xw.shape[0]  # number of 3D points
+        logger.debug(f'Xw: {Xw.shape}')
+        logger.debug(f'Cw: {Cw.shape}')
 
         # Generate auxiliary matrix to compute alphas
         C = np.vstack((Cw.T, np.ones((1, 4)))) # 4x4
         X = np.vstack((Xw.T, np.ones((1, n)))) # 4xn
+        
+        logger.debug(f'C: {C.shape}')
+        logger.debug(f'C: {C}')
+        
         Alph_ = np.linalg.inv(C) @ X # 4xn
 
         Alph = Alph_.T # nx4
@@ -364,19 +370,30 @@ class bgpnp():
 
         """
         dims = Y.shape[1]
-        mY = np.mean(Y, axis=0)
-        cY = Y - np.outer(mY, np.ones(dims))
+        mY = np.mean(Y, axis=1)
+        cY = Y - mY.reshape(Y.shape[0], 1)
         ncY = np.linalg.norm(cY)
         tcY = cY / ncY
 
         A = np.dot(X['nP'], tcY.T)
-        L, D, M = np.linalg.svd(A)
+        L, D, Mt = np.linalg.svd(A)
 
-        R = np.dot(M, np.diag([1, 1, np.sign(np.linalg.det(M * L.T))])) * L.T
+        logger.debug(f'A: {A}')
+        logger.debug(f'L: {L}')
+        logger.debug(f'D: {D}')
+        logger.debug(f'M: {Mt.T}')
+        
+        R = Mt.T @ np.diag([1, 1, np.sign(np.linalg.det(Mt.T @ L.T))]) @ L.T
+        logger.debug(f'R: {R}')
 
         b = np.sum(np.diag(D)) * X['norm'] / ncY
+        logger.debug(f'b: {b}')
         c = X['mP'] - np.dot(b, np.dot(R.T, mY))
-        mc = np.dot(c, np.ones((1, dims)))
+        logger.debug(f'c: {c}')
+
+        mc = np.tile(c, (dims,1)).T
+        logger.debug(f'mc: {mc}')
+
         return R, b, mc
     
     def KernelPnP(Cw: np.ndarray, Km: np.ndarray, dims: int = 4, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
@@ -392,36 +409,48 @@ class bgpnp():
         Returns:
             tuple: A tuple containing the rotation matrix (R), translation vector (T), and error (err).
         """
-        vK = np.reshape(Km[:, -1], (3, dims))
-        
+        vK = np.reshape(Km[:, -1], (dims, -1)).T
+        logger.debug(f'vK: {vK}')
         # precomputations
         X = {}
-        X['P'] = Cw
+        X['P'] = Cw.T
+        logger.debug(X['P'])
         X['mP'] = np.mean(X['P'], axis=1)
-        X['cP'] = X['P'] - np.outer(X['mP'], np.ones(dims))
+        logger.debug(X['mP'])
+        X['cP'] = X['P'] - X['mP'].reshape(3, 1)
+        logger.debug(X['cP'])
+
         X['norm'] = np.linalg.norm(X['cP'])
+        logger.debug(X['norm'])
         X['nP'] = X['cP'] / X['norm']
-        
+        logger.debug(X['nP'])
+
         # procrustes solution for the first kernel vector
         R, b, mc = bgpnp.myProcrustes(X, vK)
-        
+                
         solV = b * vK
         solR = R
         solmc = mc
-        
+                
         # procrustes solution using 4 kernel eigenvectors
+        err = np.inf
         if sol_iter:
-            err = np.inf
             n_iterations = 500
             for iter in range(n_iterations):
                 # projection of previous solution into the null space
                 A = R @ (-mc + X['P'])
-                abcd = np.linalg.lstsq(Km, A.flatten(), rcond=None)[0]
-                newV = np.reshape(Km @ abcd, (3, dims))
+                abcd = np.linalg.lstsq(Km, A.T.flatten(), rcond=None)[0]
+                newV = np.reshape(Km @ abcd, (dims, -1)).T
+                
+                logger.debug(f'Iteration: {iter}')
+                logger.debug(f'A: {A}')
+                logger.debug(f'abcd: {abcd}')
+                logger.debug(f'newV: {newV}')
                 
                 # euclidean error
-                newerr = np.linalg.norm(R.T @ newV + mc - X['P'])
-                
+                newerr = np.linalg.norm(R.T @ newV + mc - X['P'],2)
+                logger.debug(f'newerr: {newerr}')
+
                 if ((newerr > err) and (iter > 2)) or newerr < 1e-6:
                     break
                 else:
@@ -437,7 +466,7 @@ class bgpnp():
         mV = np.mean(solV, axis=1)
         
         T = mV - R @ X['mP']
-        
+        logger.info(f'Final solution: {R}, {T}')
         return R, T, err
 
     @staticmethod
@@ -455,8 +484,12 @@ class bgpnp():
         """
         K = np.zeros((M.shape[1], dimker))
         U, S, V = np.linalg.svd(M)
-        K[:, 0:dimker-1] = V[:, -dimker+1:]
+        V = V.T
+        logger.debug(f'U: {V}')
         
+        K[:, 0:dimker-1] = V[:, -dimker+1:]
+        logger.debug(f'K: {K}')
+        logger.debug(f'np.linalg.pinv(M) @ b: {np.linalg.pinv(M) @ b}')
         if np.linalg.matrix_rank(M) < 12:
             K[:, -1] = np.linalg.pinv(M) @ b
         else:
@@ -466,20 +499,27 @@ class bgpnp():
 
 
     @staticmethod
-    def prepare_data(p, b, pb, Cw=None):
+    def prepare_data(p: np.ndarray, bearing: np.ndarray, pb: np.ndarray, Cw: np.ndarray = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Prepare data for the bearing-only solver.
+
+        Args:
+            p (np.ndarray): Array of sensor positions.
+            bearing (np.ndarray): Array of bearing measurements.
+            pb (np.ndarray): Array of target positions.
+            Cw (np.ndarray, optional): Array of control points. Defaults to None.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: A tuple containing the computed matrices M and b, the array of alphas Alph, and the array of control points Cw.
+        """
         if Cw is None:
-            Cw = bgpnp.define_control_points().T
+            logger.info('Control points not provided. Defining control points.')
+            Cw = bgpnp.define_control_points()
         
+        logger.debug(f'Cw: {Cw}')
         Alph = bgpnp.compute_alphas(p, Cw)
-        M, b = bgpnp.compute_Mb(b, Alph, pb)
+        M, b = bgpnp.compute_Mb(bearing, Alph, pb)
         
-        return M, Cw, Alph, Cw
-        # Compute alphas (linear combination of the control points to represent the 3D points)
-        Alph = bgpnp.compute_alphas(p, Cw)
-
-        # Compute M
-        M, b = bgpnp.compute_Mb(b, Alph, pb)
-
         return M, b, Alph, Cw
 
     @staticmethod
@@ -518,6 +558,10 @@ class bgpnp():
         b = np.zeros(3 * bearing.shape[0])
         for i in range(bearing.shape[0]):
             S = bgpnp.skew_symmetric_matrix(bearing[i])
+            logger.debug(f'bearing: {bearing[i]}')
+            logger.debug(f'S: {S}')
+            logger.debug(f'Alph: {Alph[i]}')
+
             M[3 * i:3 * i + 3, :] = np.kron(Alph[i], S)
             b[3 * i:3 * i + 3] = S.dot(p2[i])
                     
