@@ -114,7 +114,7 @@ class TestBGPNP(unittest.TestCase):
         
     # Test case 2
     def test_bgpnp(self):
-        from bearing_only_solver import bgpnp, load_simulation_data, compute_A_matrix, compute_b_vector, orthogonal_procrustes, compute_reduced_Ab_matrix
+        from bearing_only_solver import bgpnp, bearing_linear_solver, load_simulation_data
         import numpy as np 
         import os
         import logging
@@ -151,24 +151,7 @@ class TestBGPNP(unittest.TestCase):
                 theta = atan2(vec[1], vec[0])
                 bearing_angle[:, i] = np.array([theta, phi])   
 
-            A = compute_A_matrix(uvw[0,:], uvw[1,:], uvw[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
-            b = compute_b_vector(xyz[0,:], xyz[1,:], xyz[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
-                
-            # Solve for x using least squares
-            from scipy.linalg import solve, lstsq
-            x = solve(A, b)
-            logger.debug(f'Solution x: {x}')
-
-            R2 = x[:9].reshape(3, 3)
-            R2 = orthogonal_procrustes(R2)
-            logger.debug(f'R: {R2}')
-        
-            A1,b1 = compute_reduced_Ab_matrix(uvw[0,:], uvw[1,:], uvw[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1], xyz[0,:], xyz[1,:], xyz[2,:], R2)
-        
-            x1, res, rnk, s = lstsq(A1, b1)
-            logger.debug(f'Solution x: {x1}')
-            t2 = x1[:3]        
-            logger.debug(f't: {t2}')
+            R2, t2 = bearing_linear_solver.solve(uvw, xyz, bearing)
             
             logger.info(f'R1: {R1}')
             logger.info(f'R2: {R2}')

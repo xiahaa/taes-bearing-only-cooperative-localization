@@ -10,140 +10,6 @@ logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)
 
 logger = logging.getLogger(__name__)
 
-def compute_reduced_Ab_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray, 
-                              k: int, xB: np.ndarray, yB: np.ndarray, zB: np.ndarray, R: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Compute the reduced A and b matrices for the bearing-only solver.
-
-    Parameters:
-    - uA (np.ndarray): Array of uA values. Shape: (k,)
-    - vA (np.ndarray): Array of vA values. Shape: (k,)
-    - wA (np.ndarray): Array of wA values. Shape: (k,)
-    - phi (np.ndarray): Array of phi values. Shape: (k,)
-    - theta (np.ndarray): Array of theta values. Shape: (k,)
-    - k (int): Number of elements in the arrays.
-    - xB (np.ndarray): Array of xB values. Shape: (k,)
-    - yB (np.ndarray): Array of yB values. Shape: (k,)
-    - zB (np.ndarray): Array of zB values. Shape: (k,)
-    - R (np.ndarray): Array of R values. Shape: (3, 3)
-
-    Returns:
-    - A (np.ndarray): The reduced A matrix. Shape: (2 * k, 3)
-    - b (np.ndarray): The reduced b matrix. Shape: (2 * k,)
-    """
-    r = R.flatten()
-    A = np.zeros((2 * k, 3))
-    b = np.zeros(2 * k)
-    
-    for i in range(k):
-        A[2 * i, 0] = np.sin(phi[i])
-        A[2 * i, 1] = 0
-        A[2 * i, 2] = -np.cos(theta[i]) * np.cos(phi[i])
-        
-        A[2 * i + 1, 0] = 0
-        A[2 * i + 1, 1] = np.sin(phi[i])
-        A[2 * i + 1, 2] = -np.sin(theta[i]) * np.cos(phi[i])
-        
-        AA = np.zeros((2, 9))
-        AA[0, 0] = uA[i] * np.sin(phi[i])
-        AA[0, 1] = vA[i] * np.sin(phi[i])
-        AA[0, 2] = wA[i] * np.sin(phi[i])
-        AA[0, 3] = 0
-        AA[0, 4] = 0
-        AA[0, 5] = 0
-        AA[0, 6] = -uA[i] * np.cos(theta[i]) * np.cos(phi[i])
-        AA[0, 7] = -vA[i] * np.cos(theta[i]) * np.cos(phi[i])
-        AA[0, 8] = -wA[i] * np.cos(theta[i]) * np.cos(phi[i])
-        
-        AA[0 + 1, 0] = 0
-        AA[0 + 1, 1] = 0
-        AA[0 + 1, 2] = 0
-        AA[0 + 1, 3] = uA[i] * np.sin(phi[i])
-        AA[0 + 1, 4] = vA[i] * np.sin(phi[i])
-        AA[0 + 1, 5] = wA[i] * np.sin(phi[i])
-        AA[0 + 1, 6] = -uA[i] * np.sin(theta[i]) * np.cos(phi[i])
-        AA[0 + 1, 7] = -vA[i] * np.sin(theta[i]) * np.cos(phi[i])
-        AA[0 + 1, 8] = -wA[i] * np.sin(theta[i]) * np.cos(phi[i])
-        
-        residual = AA.dot(r)
-        print(f'Residual: {residual}')
-        
-        b[2 * i] = -np.cos(theta[i]) * np.cos(phi[i]) * zB[i] + np.sin(phi[i]) * xB[i] - residual[0]
-        b[2 * i + 1] = -np.sin(theta[i]) * np.cos(phi[i]) * zB[i] + np.sin(phi[i]) * yB[i] -  residual[1]
-        
-    return A, b
-
-
-def compute_A_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray, k: int) -> np.ndarray:
-    """
-    Compute the A matrix for bearing-only solver.
-
-    Parameters:
-    uA (np.ndarray): Array of uA values. Shape: (k,)
-    vA (np.ndarray): Array of vA values. Shape: (k,)
-    wA (np.ndarray): Array of wA values. Shape: (k,)
-    phi (np.ndarray): Array of phi values. Shape: (k,)
-    theta (np.ndarray): Array of theta values. Shape: (k,)
-    k (int): Number of elements in the arrays.
-
-    Returns:
-    A (np.ndarray): A matrix of shape (2 * k, 12).
-    """
-    A = np.zeros((2 * k, 12))
-
-    for i in range(k):
-        A[2 * i, 0] = uA[i] * np.sin(phi[i])
-        A[2 * i, 1] = vA[i] * np.sin(phi[i])
-        A[2 * i, 2] = wA[i] * np.sin(phi[i])
-        A[2 * i, 3] = 0
-        A[2 * i, 4] = 0
-        A[2 * i, 5] = 0
-        A[2 * i, 6] = -uA[i] * np.cos(theta[i]) * np.cos(phi[i])
-        A[2 * i, 7] = -vA[i] * np.cos(theta[i]) * np.cos(phi[i])
-        A[2 * i, 8] = -wA[i] * np.cos(theta[i]) * np.cos(phi[i])
-        A[2 * i, 9] = np.sin(phi[i])
-        A[2 * i, 10] = 0
-        A[2 * i, 11] = -np.cos(theta[i]) * np.cos(phi[i])
-
-        A[2 * i + 1, 0] = 0
-        A[2 * i + 1, 1] = 0
-        A[2 * i + 1, 2] = 0
-        A[2 * i + 1, 3] = uA[i] * np.sin(phi[i])
-        A[2 * i + 1, 4] = vA[i] * np.sin(phi[i])
-        A[2 * i + 1, 5] = wA[i] * np.sin(phi[i])
-        A[2 * i + 1, 6] = -uA[i] * np.sin(theta[i]) * np.cos(phi[i])
-        A[2 * i + 1, 7] = -vA[i] * np.sin(theta[i]) * np.cos(phi[i])
-        A[2 * i + 1, 8] = -wA[i] * np.sin(theta[i]) * np.cos(phi[i])
-        A[2 * i + 1, 9] = 0
-        A[2 * i + 1, 10] = np.sin(phi[i])
-        A[2 * i + 1, 11] = -np.sin(theta[i]) * np.cos(phi[i])
-
-    return A
-
-def compute_b_vector(xB: np.ndarray, yB: np.ndarray, zB: np.ndarray, phi: np.ndarray, theta: np.ndarray, k: int) -> np.ndarray:
-    """
-    Compute the b vector for the bearing-only solver.
-
-    Parameters:
-    - xB (np.ndarray): x-coordinates of the bearings. Shape: (k,)
-    - yB (np.ndarray): y-coordinates of the bearings. Shape: (k,)
-    - zB (np.ndarray): z-coordinates of the bearings. Shape: (k,)
-    - phi (np.ndarray): azimuth angles of the bearings. Shape: (k,)
-    - theta (np.ndarray): elevation angles of the bearings. Shape: (k,)
-    - k (int): number of bearings.
-
-    Returns:
-    - b (np.ndarray): computed b vector. Shape: (2 * k,)
-    """
-    b = np.zeros(2 * k)
-
-    for i in range(k):
-        b[2 * i] = -np.cos(theta[i]) * np.cos(phi[i]) * zB[i] + np.sin(phi[i]) * xB[i]
-        b[2 * i + 1] = -np.sin(theta[i]) * np.cos(phi[i]) * zB[i] + np.sin(phi[i]) * yB[i]
-
-    return b
-
-
 def load_simulation_data(filename: str) -> dict:
     """
     Load simulation data from a file.
@@ -191,63 +57,189 @@ def load_simulation_data(filename: str) -> dict:
         data["tgt"] = tgt
         
     return data
-
-def orthogonal_procrustes(Rgt: np.ndarray) -> np.ndarray:
-    """
-    Perform the orthogonal Procrustes analysis to find the optimal rotation matrix.
-
-    Parameters:
-    - Rgt (np.ndarray): A 2D numpy array of shape (3, 3) representing the input rotation matrix.
-
-    Returns:
-    - Ropt (np.ndarray): A 2D numpy array of shape (3, 3) representing the optimal rotation matrix.
-    """
-    U, S, Vt = np.linalg.svd(Rgt)
+class bearing_linear_solver():
+    def __init__(self) -> None:
+        pass
     
-    D = np.dot(Vt.T, U.T)
-    if np.linalg.det(D) < 0:
-        Vt[-1, :] *= -1
+    @staticmethod
+    def compute_reduced_Ab_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray, 
+                                k: int, xB: np.ndarray, yB: np.ndarray, zB: np.ndarray, R: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Compute the reduced A and b matrices for the bearing-only solver.
+
+        Parameters:
+        - uA (np.ndarray): Array of uA values. Shape: (k,)
+        - vA (np.ndarray): Array of vA values. Shape: (k,)
+        - wA (np.ndarray): Array of wA values. Shape: (k,)
+        - phi (np.ndarray): Array of phi values. Shape: (k,)
+        - theta (np.ndarray): Array of theta values. Shape: (k,)
+        - k (int): Number of elements in the arrays.
+        - xB (np.ndarray): Array of xB values. Shape: (k,)
+        - yB (np.ndarray): Array of yB values. Shape: (k,)
+        - zB (np.ndarray): Array of zB values. Shape: (k,)
+        - R (np.ndarray): Array of R values. Shape: (3, 3)
+
+        Returns:
+        - A (np.ndarray): The reduced A matrix. Shape: (2 * k, 3)
+        - b (np.ndarray): The reduced b matrix. Shape: (2 * k,)
+        """
+        r = R.flatten()
+        A = np.zeros((2 * k, 3))
+        b = np.zeros(2 * k)
+        
+        for i in range(k):
+            A[2 * i, 0] = np.sin(phi[i])
+            A[2 * i, 1] = 0
+            A[2 * i, 2] = -np.cos(theta[i]) * np.cos(phi[i])
+            
+            A[2 * i + 1, 0] = 0
+            A[2 * i + 1, 1] = np.sin(phi[i])
+            A[2 * i + 1, 2] = -np.sin(theta[i]) * np.cos(phi[i])
+            
+            AA = np.zeros((2, 9))
+            AA[0, 0] = uA[i] * np.sin(phi[i])
+            AA[0, 1] = vA[i] * np.sin(phi[i])
+            AA[0, 2] = wA[i] * np.sin(phi[i])
+            AA[0, 3] = 0
+            AA[0, 4] = 0
+            AA[0, 5] = 0
+            AA[0, 6] = -uA[i] * np.cos(theta[i]) * np.cos(phi[i])
+            AA[0, 7] = -vA[i] * np.cos(theta[i]) * np.cos(phi[i])
+            AA[0, 8] = -wA[i] * np.cos(theta[i]) * np.cos(phi[i])
+            
+            AA[0 + 1, 0] = 0
+            AA[0 + 1, 1] = 0
+            AA[0 + 1, 2] = 0
+            AA[0 + 1, 3] = uA[i] * np.sin(phi[i])
+            AA[0 + 1, 4] = vA[i] * np.sin(phi[i])
+            AA[0 + 1, 5] = wA[i] * np.sin(phi[i])
+            AA[0 + 1, 6] = -uA[i] * np.sin(theta[i]) * np.cos(phi[i])
+            AA[0 + 1, 7] = -vA[i] * np.sin(theta[i]) * np.cos(phi[i])
+            AA[0 + 1, 8] = -wA[i] * np.sin(theta[i]) * np.cos(phi[i])
+            
+            residual = AA.dot(r)
+            print(f'Residual: {residual}')
+            
+            b[2 * i] = -np.cos(theta[i]) * np.cos(phi[i]) * zB[i] + np.sin(phi[i]) * xB[i] - residual[0]
+            b[2 * i + 1] = -np.sin(theta[i]) * np.cos(phi[i]) * zB[i] + np.sin(phi[i]) * yB[i] -  residual[1]
+            
+        return A, b
+
+    @staticmethod
+    def compute_A_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray, k: int) -> np.ndarray:
+        """
+        Compute the A matrix for bearing-only solver.
+
+        Parameters:
+        uA (np.ndarray): Array of uA values. Shape: (k,)
+        vA (np.ndarray): Array of vA values. Shape: (k,)
+        wA (np.ndarray): Array of wA values. Shape: (k,)
+        phi (np.ndarray): Array of phi values. Shape: (k,)
+        theta (np.ndarray): Array of theta values. Shape: (k,)
+        k (int): Number of elements in the arrays.
+
+        Returns:
+        A (np.ndarray): A matrix of shape (2 * k, 12).
+        """
+        A = np.zeros((2 * k, 12))
+
+        for i in range(k):
+            A[2 * i, 0] = uA[i] * np.sin(phi[i])
+            A[2 * i, 1] = vA[i] * np.sin(phi[i])
+            A[2 * i, 2] = wA[i] * np.sin(phi[i])
+            A[2 * i, 3] = 0
+            A[2 * i, 4] = 0
+            A[2 * i, 5] = 0
+            A[2 * i, 6] = -uA[i] * np.cos(theta[i]) * np.cos(phi[i])
+            A[2 * i, 7] = -vA[i] * np.cos(theta[i]) * np.cos(phi[i])
+            A[2 * i, 8] = -wA[i] * np.cos(theta[i]) * np.cos(phi[i])
+            A[2 * i, 9] = np.sin(phi[i])
+            A[2 * i, 10] = 0
+            A[2 * i, 11] = -np.cos(theta[i]) * np.cos(phi[i])
+
+            A[2 * i + 1, 0] = 0
+            A[2 * i + 1, 1] = 0
+            A[2 * i + 1, 2] = 0
+            A[2 * i + 1, 3] = uA[i] * np.sin(phi[i])
+            A[2 * i + 1, 4] = vA[i] * np.sin(phi[i])
+            A[2 * i + 1, 5] = wA[i] * np.sin(phi[i])
+            A[2 * i + 1, 6] = -uA[i] * np.sin(theta[i]) * np.cos(phi[i])
+            A[2 * i + 1, 7] = -vA[i] * np.sin(theta[i]) * np.cos(phi[i])
+            A[2 * i + 1, 8] = -wA[i] * np.sin(theta[i]) * np.cos(phi[i])
+            A[2 * i + 1, 9] = 0
+            A[2 * i + 1, 10] = np.sin(phi[i])
+            A[2 * i + 1, 11] = -np.sin(theta[i]) * np.cos(phi[i])
+
+        return A
+
+    @staticmethod
+    def compute_b_vector(xB: np.ndarray, yB: np.ndarray, zB: np.ndarray, phi: np.ndarray, theta: np.ndarray, k: int) -> np.ndarray:
+        """
+        Compute the b vector for the bearing-only solver.
+
+        Parameters:
+        - xB (np.ndarray): x-coordinates of the bearings. Shape: (k,)
+        - yB (np.ndarray): y-coordinates of the bearings. Shape: (k,)
+        - zB (np.ndarray): z-coordinates of the bearings. Shape: (k,)
+        - phi (np.ndarray): azimuth angles of the bearings. Shape: (k,)
+        - theta (np.ndarray): elevation angles of the bearings. Shape: (k,)
+        - k (int): number of bearings.
+
+        Returns:
+        - b (np.ndarray): computed b vector. Shape: (2 * k,)
+        """
+        b = np.zeros(2 * k)
+
+        for i in range(k):
+            b[2 * i] = -np.cos(theta[i]) * np.cos(phi[i]) * zB[i] + np.sin(phi[i]) * xB[i]
+            b[2 * i + 1] = -np.sin(theta[i]) * np.cos(phi[i]) * zB[i] + np.sin(phi[i]) * yB[i]
+
+        return b
+
+    @staticmethod
+    def orthogonal_procrustes(Rgt: np.ndarray) -> np.ndarray:
+        """
+        Perform the orthogonal Procrustes analysis to find the optimal rotation matrix.
+
+        Parameters:
+        - Rgt (np.ndarray): A 2D numpy array of shape (3, 3) representing the input rotation matrix.
+
+        Returns:
+        - Ropt (np.ndarray): A 2D numpy array of shape (3, 3) representing the optimal rotation matrix.
+        """
+        U, S, Vt = np.linalg.svd(Rgt)
+        
         D = np.dot(Vt.T, U.T)
-    
-    Ropt = D.T
-    return Ropt
-
-
-def bearing_only_solver(folder: str, file: str):
-    """
-    Solve the bearing-only problem given a folder and a file.
-
-    Args:
-        folder (str): The folder path where the files are located.
-        file (str): The file name to search for in the folder.
-
-    Returns:
-        None
-    """
-    files = [os.path.join(folder, f) for f in os.listdir(folder) if file in f]
-
-    for f in files:
-        data = load_simulation_data(f)
-        logger.debug(data["p1"])
-        logger.debug(data["p2"].shape)
-        logger.debug(data["Rgt"])
-        logger.debug(data["tgt"])
+        if np.linalg.det(D) < 0:
+            Vt[-1, :] *= -1
+            D = np.dot(Vt.T, U.T)
         
-        uvw = data["p1"]
-        xyz = data["p2"]
-        
-        bearing_angle = np.zeros((2, data["bearing"].shape[1]))
-        for i in range(data["bearing"].shape[1]):
-            vec = data["bearing"][:, i]
+        Ropt = D.T
+        return Ropt
+
+    @staticmethod
+    def solve(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Solve the bearing-only problem given the sensor positions, target positions, and bearing angles.
+
+        Parameters:
+        - uvw (np.ndarray): Array of sensor positions. Shape: (3, n)
+        - xyz (np.ndarray): Array of target positions. Shape: (3, n)
+        - bearing (np.ndarray): Array of bearing angles. Shape: (3, n)
+
+        Returns:
+        - R (np.ndarray): The rotation matrix. Shape: (3, 3)
+        - t (np.ndarray): The translation vector. Shape: (3,)
+        """
+        bearing_angle = np.zeros((2, bearing.shape[1]))
+        for i in range(bearing.shape[1]):
+            vec = bearing[:, i]
             phi = asin(vec[2])
             theta = atan2(vec[1], vec[0])
-            bearing_angle[:, i] = np.array([theta, phi])           
-
-
-        A = compute_A_matrix(uvw[0,:], uvw[1,:], uvw[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
-        b = compute_b_vector(xyz[0,:], xyz[1,:], xyz[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
+            bearing_angle[:, i] = np.array([theta, phi])        
         
-        logger.debug(A.shape)
+        A = bearing_linear_solver.compute_A_matrix(uvw[0,:], uvw[1,:], uvw[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
+        b = bearing_linear_solver.compute_b_vector(xyz[0,:], xyz[1,:], xyz[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
         
         # Solve for x using least squares
         from scipy.linalg import solve, lstsq
@@ -255,20 +247,19 @@ def bearing_only_solver(folder: str, file: str):
         logger.debug(f'Solution x: {x}')
 
         R = x[:9].reshape(3, 3)
-        R = orthogonal_procrustes(R)
+        R = bearing_linear_solver.orthogonal_procrustes(R)
         # t = x[9:]
         logger.debug(f'R: {R}')
-        # logger.debug(f't: {t}')
         
-        A1,b1 = compute_reduced_Ab_matrix(uvw[0,:], uvw[1,:], uvw[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1], xyz[0,:], xyz[1,:], xyz[2,:], R)
+        A1,b1 = bearing_linear_solver.compute_reduced_Ab_matrix(uvw[0,:], uvw[1,:], uvw[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1], xyz[0,:], xyz[1,:], xyz[2,:], R)
         
         x1, res, rnk, s = lstsq(A1, b1)
         logger.debug(f'Solution x: {x1}')
         t = x1[:3]        
         logger.debug(f't: {t}')
-
-
-
+        
+        return R, t
+    
 class bgpnp():
     def __init__(self) -> None:
         pass
@@ -568,7 +559,37 @@ class bgpnp():
         return M, b
 
 
+def bearing_only_solver(folder: str, file: str):
+    """
+    Solve the bearing-only problem given a folder and a file.
+
+    Args:
+        folder (str): The folder path where the files are located.
+        file (str): The file name to search for in the folder.
+
+    Returns:
+        None
+    """
+    files = [os.path.join(folder, f) for f in os.listdir(folder) if file in f]
+
+    solver = bearing_linear_solver()
+    
+    for f in files:
+        data = load_simulation_data(f)
+        logger.debug(data["p1"])
+        logger.debug(data["p2"].shape)
+        logger.debug(data["Rgt"])
+        logger.debug(data["tgt"])
         
+        uvw = data["p1"]
+        xyz = data["p2"]
+        bearing = data["bearing"]
+
+        R, t = solver.solve(uvw, xyz, bearing)
+
+        logger.info(f'Solution R: {R}')
+        logger.info(f't: {t}')
+
 if __name__ == "__main__":
     bearing_only_solver('../taes/', 'simu_')
     

@@ -1,21 +1,114 @@
 # Bearing Only Solver
 This repository contains a Python implementation of a bearing-only solver. The solver is designed to compute the relative pose between two sets of points given their bearings.
 
-`bearing_only_solver`
+## `bearing_linear_solver` Class
+The `bearing_linear_solver` class implements the linear bearing solver algorithm proposed in [1]. It provides methods to solve for the rotation matrix, translation vector, and error given 2D coordinates, bearing angles, and other parameters.
+
+> Cooperative Localisation of a GPS-Denied UAV using Direction-of-Arrival Measurements. JS Russell, M Ye, BDO Anderson, H Hmam, P Sarunic. IEEE Transactions on Aerospace and Electronic Systems， 2019
+
 ```python
-def bearing_only_solver(foler: str, file: str):
+class bearing_linear_solver():
+    def __init__(self) -> None:
+        pass
+    
+    @staticmethod
+    def compute_reduced_Ab_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray, 
+                                k: int, xB: np.ndarray, yB: np.ndarray, zB: np.ndarray, R: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    
     ...
+
+    @staticmethod
+    def solve(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
 ```
 
-Main function to solve the bearing-only problem. It loads the data, computes the necessary matrices, and solves for the relative pose.
-
-## Usage
+### Usage
 To use the bearing-only solver, run the `bearing_only_solver.py` script with the appropriate folder and file prefix:
 ```python
-python bearing_only_solver.py
+import numpy as np
+from bearing_only_solver import bearing_linear_solver
+
+# Example data
+p1 = np.array([[0, 0], [1, 1], [2, 2]])
+p2 = np.array([[0, 0], [1, 1], [2, 2]])
+bearing = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+
+# Solve using the BGPnP algorithm
+R, T = bearing_linear_solver.solve(p1, p2, bearing)
+
+print("Rotation Matrix:", R)
+print("Translation Vector:", T)
 ```
 
-Make sure to update the folder and file prefix in the script as needed.
+## `bgpnp` Class
+
+The `bgpnp` class implements the Bearing Generalized Perspective-n-Point (BGPnP) algorithm. It provides methods to solve for the rotation matrix, translation vector, and error given 2D coordinates, bearing angles, and other parameters.
+
+### Class Definition
+
+```python
+class bgpnp:
+    def __init__(self) -> None:
+        pass
+    
+    @staticmethod
+    def solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
+        # Method implementation
+
+    @staticmethod
+    def define_control_points() -> np.ndarray:
+        # Method implementation
+
+    @staticmethod
+    def compute_alphas(Xw: np.ndarray, Cw: np.ndarray) -> np.ndarray:
+        # Method implementation
+
+    @staticmethod 
+    def myProcrustes(X, Y):
+        # Method implementation
+
+    @staticmethod
+    def KernelPnP(Cw: np.ndarray, Km: np.ndarray, dims: int = 4, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
+        # Method implementation
+
+    @staticmethod
+    def kernel_noise(M: np.ndarray, b: np.ndarray, dimker: int = 4) -> np.ndarray:
+        # Method implementation
+
+    @staticmethod
+    def prepare_data(p: np.ndarray, bearing: np.ndarray, pb: np.ndarray, Cw: np.ndarray = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        # Method implementation
+
+    @staticmethod
+    def skew_symmetric_matrix(v: np.ndarray) -> np.ndarray:
+        # Method implementation
+
+    @staticmethod
+    def compute_Mb(bearing: np.ndarray, Alph: np.ndarray, p2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        # Method implementation
+```
+### Usage Example
+```python
+import numpy as np
+from bearing_only_solver import bgpnp
+
+# Example data
+p1 = np.array([[0, 0], [1, 1], [2, 2]])
+p2 = np.array([[0, 0], [1, 1], [2, 2]])
+bearing = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+
+# Solve using the BGPnP algorithm
+R, T, err = bgpnp.solve(p1, p2, bearing)
+
+print("Rotation Matrix:", R)
+print("Translation Vector:", T)
+print("Error:", err)
+```
+
+### Description
+The bgpnp class provides several static methods to perform various computations required by the BGPnP algorithm:
+- solve(p1, p2, bearing, sol_iter): Computes the rotation matrix, translation vector, and error.
+
+
 
 ## Dependencies
 - numpy
