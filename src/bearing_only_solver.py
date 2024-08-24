@@ -2,7 +2,7 @@ import numpy as np
 import os
 import logging
 from math import sin, cos, tan, asin, acos, atan2, fabs, sqrt
-from typing import Optional
+from typing import Optional, Tuple
 
 logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
     datefmt='%Y-%m-%d:%H:%M:%S',
@@ -10,7 +10,27 @@ logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)
 
 logger = logging.getLogger(__name__)
 
-def compute_reduced_Ab_matrix(uA, vA, wA, phi, theta, k, xB, yB, zB, R):
+def compute_reduced_Ab_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray, 
+                              k: int, xB: np.ndarray, yB: np.ndarray, zB: np.ndarray, R: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute the reduced A and b matrices for the bearing-only solver.
+
+    Parameters:
+    - uA (np.ndarray): Array of uA values. Shape: (k,)
+    - vA (np.ndarray): Array of vA values. Shape: (k,)
+    - wA (np.ndarray): Array of wA values. Shape: (k,)
+    - phi (np.ndarray): Array of phi values. Shape: (k,)
+    - theta (np.ndarray): Array of theta values. Shape: (k,)
+    - k (int): Number of elements in the arrays.
+    - xB (np.ndarray): Array of xB values. Shape: (k,)
+    - yB (np.ndarray): Array of yB values. Shape: (k,)
+    - zB (np.ndarray): Array of zB values. Shape: (k,)
+    - R (np.ndarray): Array of R values. Shape: (3, 3)
+
+    Returns:
+    - A (np.ndarray): The reduced A matrix. Shape: (2 * k, 3)
+    - b (np.ndarray): The reduced b matrix. Shape: (2 * k,)
+    """
     r = R.flatten()
     A = np.zeros((2 * k, 3))
     b = np.zeros(2 * k)
@@ -54,7 +74,21 @@ def compute_reduced_Ab_matrix(uA, vA, wA, phi, theta, k, xB, yB, zB, R):
     return A, b
 
 
-def compute_A_matrix(uA, vA, wA, phi, theta, k):
+def compute_A_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray, k: int) -> np.ndarray:
+    """
+    Compute the A matrix for bearing-only solver.
+
+    Parameters:
+    uA (np.ndarray): Array of uA values. Shape: (k,)
+    vA (np.ndarray): Array of vA values. Shape: (k,)
+    wA (np.ndarray): Array of wA values. Shape: (k,)
+    phi (np.ndarray): Array of phi values. Shape: (k,)
+    theta (np.ndarray): Array of theta values. Shape: (k,)
+    k (int): Number of elements in the arrays.
+
+    Returns:
+    A (np.ndarray): A matrix of shape (2 * k, 12).
+    """
     A = np.zeros((2 * k, 12))
 
     for i in range(k):
@@ -86,7 +120,21 @@ def compute_A_matrix(uA, vA, wA, phi, theta, k):
 
     return A
 
-def compute_b_vector(xB, yB, zB, phi, theta, k):
+def compute_b_vector(xB: np.ndarray, yB: np.ndarray, zB: np.ndarray, phi: np.ndarray, theta: np.ndarray, k: int) -> np.ndarray:
+    """
+    Compute the b vector for the bearing-only solver.
+
+    Parameters:
+    - xB (np.ndarray): x-coordinates of the bearings. Shape: (k,)
+    - yB (np.ndarray): y-coordinates of the bearings. Shape: (k,)
+    - zB (np.ndarray): z-coordinates of the bearings. Shape: (k,)
+    - phi (np.ndarray): azimuth angles of the bearings. Shape: (k,)
+    - theta (np.ndarray): elevation angles of the bearings. Shape: (k,)
+    - k (int): number of bearings.
+
+    Returns:
+    - b (np.ndarray): computed b vector. Shape: (2 * k,)
+    """
     b = np.zeros(2 * k)
 
     for i in range(k):
@@ -96,9 +144,22 @@ def compute_b_vector(xB, yB, zB, phi, theta, k):
     return b
 
 
-import numpy as np
+def load_simulation_data(filename: str) -> dict:
+    """
+    Load simulation data from a file.
 
-def load_simulation_data(filename: str):
+    Args:
+        filename (str): The path to the file containing the simulation data.
+
+    Returns:
+        dict: A dictionary containing the loaded simulation data. The dictionary
+              has the following keys:
+              - "p1": A 2D numpy array of shape (3, n) representing the p1 data.
+              - "p2": A 2D numpy array of shape (3, n) representing the p2 data.
+              - "bearing": A 2D numpy array of shape (3, n) representing the bearing data.
+              - "Rgt": A 2D numpy array of shape (3, 3) representing the Rgt data.
+              - "tgt": A 1D numpy array of shape (n,) representing the tgt data.
+    """
     with open(filename, 'r') as f:
         data = {}
         lines = f.readlines()
@@ -131,7 +192,16 @@ def load_simulation_data(filename: str):
         
     return data
 
-def orthogonal_procrustes(Rgt):
+def orthogonal_procrustes(Rgt: np.ndarray) -> np.ndarray:
+    """
+    Perform the orthogonal Procrustes analysis to find the optimal rotation matrix.
+
+    Parameters:
+    - Rgt (np.ndarray): A 2D numpy array of shape (3, 3) representing the input rotation matrix.
+
+    Returns:
+    - Ropt (np.ndarray): A 2D numpy array of shape (3, 3) representing the optimal rotation matrix.
+    """
     U, S, Vt = np.linalg.svd(Rgt)
     
     D = np.dot(Vt.T, U.T)
@@ -143,8 +213,18 @@ def orthogonal_procrustes(Rgt):
     return Ropt
 
 
-def bearing_only_solver(foler: str, file: str):
-    files = [os.path.join(foler, f) for f in os.listdir(foler) if file in f]
+def bearing_only_solver(folder: str, file: str):
+    """
+    Solve the bearing-only problem given a folder and a file.
+
+    Args:
+        folder (str): The folder path where the files are located.
+        file (str): The file name to search for in the folder.
+
+    Returns:
+        None
+    """
+    files = [os.path.join(folder, f) for f in os.listdir(folder) if file in f]
 
     for f in files:
         data = load_simulation_data(f)
@@ -194,6 +274,26 @@ class bgpnp():
         pass
     
     @staticmethod
+    def solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Compute the Bearing Generalized Perspective-n-Point (BGPnP) algorithm.
+
+        Args:
+            p1 (np.ndarray): The 2D coordinates of the points in the first image.
+            p2 (np.ndarray): The 2D coordinates of the points in the second image.
+            bearing (np.ndarray): The bearing angles of the points.
+            sol_iter (bool): Flag indicating whether to perform iterative refinement.
+    
+        Returns:
+            tuple: A tuple containing the rotation matrix (R), translation vector (T), and error (err).
+        """
+        M, b, Alph, Cw = bgpnp.prepare_data(p1, p2, bearing)
+        Km = bgpnp.kernel_noise(M, b, dimker=4)
+        R, t, err = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=True)
+        
+        return R, t, err
+    
+    @staticmethod
     def define_control_points() -> np.ndarray:
         """
         Define control points.
@@ -230,53 +330,201 @@ class bgpnp():
 
         Alph = Alph_.T # nx4
         return Alph
+    
+    @staticmethod 
+    def myProcrustes(X, Y):
+        """
+        Perform Procrustes analysis to find the best transformation between two sets of points.
+
+        Parameters:
+        - X: Dictionary containing the reference points.
+        - Y: Array-like object containing the target points.
+
+        Returns:
+        - R: The rotation matrix.
+        - b: The scaling factor.
+        - mc: The translation vector.
+
+        The function calculates the best rotation, scaling, and translation that aligns the target points (Y)
+        with the reference points (X). It uses the Procrustes analysis method to find the optimal transformation.
+
+        The reference points (X) should be provided as a dictionary with the following keys:
+        - 'nP': The normalized reference points.
+        - 'norm': The normalization factor.
+        - 'mP': The mean of the reference points.
+
+        The target points (Y) should be an array-like object with shape (n, d), where n is the number of points
+        and d is the number of dimensions.
+
+        The function returns the rotation matrix (R), scaling factor (b), and translation vector (mc) that
+        transform the target points (Y) to align with the reference points (X).
+
+        Note: The function assumes that the number of dimensions in the target points (Y) is the same as the
+        number of dimensions in the reference points (X).
+
+        """
+        dims = Y.shape[1]
+        mY = np.mean(Y, axis=0)
+        cY = Y - np.outer(mY, np.ones(dims))
+        ncY = np.linalg.norm(cY)
+        tcY = cY / ncY
+
+        A = np.dot(X['nP'], tcY.T)
+        L, D, M = np.linalg.svd(A)
+
+        R = np.dot(M, np.diag([1, 1, np.sign(np.linalg.det(M * L.T))])) * L.T
+
+        b = np.sum(np.diag(D)) * X['norm'] / ncY
+        c = X['mP'] - np.dot(b, np.dot(R.T, mY))
+        mc = np.dot(c, np.ones((1, dims)))
+        return R, b, mc
+    
+    def KernelPnP(Cw: np.ndarray, Km: np.ndarray, dims: int = 4, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Computes the Kernel Perspective-n-Point (KernelPnP) algorithm.
+
+        Args:
+            Cw (numpy.ndarray): The 3D world coordinates of the points.
+            Km (numpy.ndarray): The kernel matrix.
+            dims (int): The number of dimensions.
+            sol_iter (bool): Flag indicating whether to perform iterative refinement.
+
+        Returns:
+            tuple: A tuple containing the rotation matrix (R), translation vector (T), and error (err).
+        """
+        vK = np.reshape(Km[:, -1], (3, dims))
+        
+        # precomputations
+        X = {}
+        X['P'] = Cw
+        X['mP'] = np.mean(X['P'], axis=1)
+        X['cP'] = X['P'] - np.outer(X['mP'], np.ones(dims))
+        X['norm'] = np.linalg.norm(X['cP'])
+        X['nP'] = X['cP'] / X['norm']
+        
+        # procrustes solution for the first kernel vector
+        R, b, mc = bgpnp.myProcrustes(X, vK)
+        
+        solV = b * vK
+        solR = R
+        solmc = mc
+        
+        # procrustes solution using 4 kernel eigenvectors
+        if sol_iter:
+            err = np.inf
+            n_iterations = 500
+            for iter in range(n_iterations):
+                # projection of previous solution into the null space
+                A = R @ (-mc + X['P'])
+                abcd = np.linalg.lstsq(Km, A.flatten(), rcond=None)[0]
+                newV = np.reshape(Km @ abcd, (3, dims))
+                
+                # euclidean error
+                newerr = np.linalg.norm(R.T @ newV + mc - X['P'])
+                
+                if ((newerr > err) and (iter > 2)) or newerr < 1e-6:
+                    break
+                else:
+                    # procrustes solution
+                    R, b, mc = bgpnp.myProcrustes(X, newV)
+                    solV = b * newV
+                    
+                    solmc = mc
+                    solR = R
+                    err = newerr
+        
+        R = solR
+        mV = np.mean(solV, axis=1)
+        
+        T = mV - R @ X['mP']
+        
+        return R, T, err
 
     @staticmethod
-    def prepare_data(p: np.ndarray, b: np.ndarray, Cw: Optional[np.ndarray]=None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def kernel_noise(M: np.ndarray, b: np.ndarray, dimker: int = 4) -> np.ndarray:
         """
-        Prepare data for the bearing-only solver.
+        Computes the kernel noise matrix for a given input matrix M and vector b.
 
-        Args:
-            Pts (np.ndarray): 3D points, shape (n, 3).
-            b (np.ndarray): bearing vector, shape (n, 3).
-            Cw (np.ndarray, optional): Control points. Defaults to None.
+        Parameters:
+        - M: Input matrix of shape (3n, 12)
+        - b: Input vector of shape (3n,)
+        - dimker: Dimension of the kernel noise matrix (default: 4)
 
         Returns:
-            tuple: M, Cw, Alph
+        - K: Kernel noise matrix of shape (12, dimker)
         """
+        K = np.zeros((M.shape[1], dimker))
+        U, S, V = np.linalg.svd(M)
+        K[:, 0:dimker-1] = V[:, -dimker+1:]
+        
+        if np.linalg.matrix_rank(M) < 12:
+            K[:, -1] = np.linalg.pinv(M) @ b
+        else:
+            K[:, -1] = np.linalg.pinv(M) @ b
+        
+        return K                                    
+
+
+    @staticmethod
+    def prepare_data(p, b, pb, Cw=None):
         if Cw is None:
             Cw = bgpnp.define_control_points().T
-    
+        
+        Alph = bgpnp.compute_alphas(p, Cw)
+        M, b = bgpnp.compute_Mb(b, Alph, pb)
+        
+        return M, Cw, Alph, Cw
         # Compute alphas (linear combination of the control points to represent the 3D points)
         Alph = bgpnp.compute_alphas(p, Cw)
-    
-        # Compute M
-        M = compute_M(U.flatten(), Alph)
-    
-        return M, Cw, Alph
 
-    def compute_M(bearing: np.ndarray, Alph: np.ndarray) -> np.ndarray:
+        # Compute M
+        M, b = bgpnp.compute_Mb(b, Alph, pb)
+
+        return M, b, Alph, Cw
+
+    @staticmethod
+    def skew_symmetric_matrix(v: np.ndarray) -> np.ndarray:
         """
-        Compute the M matrix.
+        Generate the skew-symmetric matrix for a vector.
 
         Args:
-            bearing (np.ndarray): bearing vector, shape (n, 3).
-            Alph (np.ndarray): Alphas, shape (n, 4).
+            v (np.ndarray): A vector of shape (3,).
 
         Returns:
-            np.ndarray: M matrix.
+            np.ndarray: A 3x3 skew-symmetric matrix.
         """
-        
-        M = np.knron(Alph, np.eye(3)) # 3n x 12
-        
-        # ATTENTION U must be multiplied by K previously
-        M = np.kron(Alph, np.array([[1, 0, -1], [0, 1, -1]]))
-        M[:, [2, 5, 8, 11]] = M[:, [2, 5, 8, 11]] * (U[:, np.newaxis] @ np.ones((1, 4)))
-        
-        return M
+        return np.array([
+            [0, -v[2], v[1]],
+            [v[2], 0, -v[0]],
+            [-v[1], v[0], 0]
+        ])
+
+    @staticmethod
+    def compute_Mb(bearing: np.ndarray, Alph: np.ndarray, p2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Compute the M and b matrix.
+
+        Args:
+            bearing (np.ndarray): Bearing vector, shape (n, 3).
+            Alph (np.ndarray): Alphas, shape (n, 4).
+            p2 (np.ndarray): 3D points, shape (n, 3).
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: A tuple containing:
+                - M (np.ndarray): The M matrix of shape (3n, 12).
+                - b (np.ndarray): The b vector of shape (3n,).
+        """
+        M = np.zeros((3 * bearing.shape[0], 12))
+        b = np.zeros(3 * bearing.shape[0])
+        for i in range(bearing.shape[0]):
+            S = bgpnp.skew_symmetric_matrix(bearing[i])
+            M[3 * i:3 * i + 3, :] = np.kron(Alph[i], S)
+            b[3 * i:3 * i + 3] = S.dot(p2[i])
+                    
+        return M, b
 
 
-    
+        
 if __name__ == "__main__":
     bearing_only_solver('../taes/', 'simu_')
     
