@@ -125,7 +125,8 @@ class TestBGPNP(unittest.TestCase):
             level=logging.INFO)
         logger = logging.getLogger(__name__)
         
-        folder = '../taes/'
+        gpath = os.path.dirname(os.path.realpath(__file__))
+        folder = os.path.join(gpath, '../taes/')
         file = 'simu_'
         
         files = [os.path.join(folder, f) for f in os.listdir(folder) if file in f]
