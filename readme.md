@@ -2,23 +2,29 @@
 This repository contains a Python implementation of a bearing-only solver. The solver is designed to compute the relative pose between two sets of points given their bearings.
 
 ## `bearing_linear_solver` Class
-The `bearing_linear_solver` class implements the linear bearing solver algorithm proposed in [1]. It provides methods to solve for the rotation matrix, translation vector, and error given 2D coordinates, bearing angles, and other parameters.
+The `bearing_linear_solver` class implements the linear and the SDP bearing solver algorithm proposed in [1]. It provides methods to solve for the rotation matrix, translation vector, and error given 2D coordinates, bearing angles, and other parameters.
 
 > Cooperative Localisation of a GPS-Denied UAV using Direction-of-Arrival Measurements. JS Russell, M Ye, BDO Anderson, H Hmam, P Sarunic. IEEE Transactions on Aerospace and Electronic Systems， 2019
+
+### For the SDP solver
+We use the `cvxpy` package for solving the semidefinite programming problem and the solver used is the MOSEK solver, for which you need to get a license (for research and students, it is free). After obatining the SDP solution, we do a rank-1 approximation by re-establishing the solution using the largest singular value as well as its singular vectors.
 
 ```python
 class bearing_linear_solver():
     def __init__(self) -> None:
         pass
-    
+
     @staticmethod
-    def compute_reduced_Ab_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray, 
+    def compute_reduced_Ab_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray,
                                 k: int, xB: np.ndarray, yB: np.ndarray, zB: np.ndarray, R: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    
+
     ...
 
     @staticmethod
     def solve(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
+
+    @staticmethod
+    def solve_with_sdp_sdr(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
 ```
 
 ### Usage
@@ -34,6 +40,7 @@ bearing = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 # Solve using the BGPnP algorithm
 R, T = bearing_linear_solver.solve(p1, p2, bearing)
+R, T = bearing_linear_solver.solve_with_sdp_sdr(p1, p2, bearing) # if you want to use the SDP + SDR solver.
 
 print("Rotation Matrix:", R)
 print("Translation Vector:", T)
@@ -49,7 +56,7 @@ The `bgpnp` class implements the Bearing Generalized Perspective-n-Point (BGPnP)
 class bgpnp:
     def __init__(self) -> None:
         pass
-    
+
     @staticmethod
     def solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
         # Method implementation
@@ -62,7 +69,7 @@ class bgpnp:
     def compute_alphas(Xw: np.ndarray, Cw: np.ndarray) -> np.ndarray:
         # Method implementation
 
-    @staticmethod 
+    @staticmethod
     def myProcrustes(X, Y):
         # Method implementation
 
@@ -177,10 +184,10 @@ gen_simulation_data_dtu()
 ## Requirements
 - Python 3.x
 - NumPy
+- cvxpy
 
 ## License
 This project is licensed under the MIT License.
 
 ## Contributing
 Contributions are welcome! Please submit a pull request or open an issue to discuss your ideas.
-

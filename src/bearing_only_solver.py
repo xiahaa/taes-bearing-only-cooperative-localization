@@ -3,6 +3,7 @@ import os
 import logging
 from math import sin, cos, tan, asin, acos, atan2, fabs, sqrt
 from typing import Optional, Tuple
+import cvxpy as cp
 
 logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
     datefmt='%Y-%m-%d:%H:%M:%S',
@@ -55,14 +56,14 @@ def load_simulation_data(filename: str) -> dict:
         data["bearing"] = bearing.T
         data["Rgt"] = Rgt
         data["tgt"] = tgt
-        
+
     return data
 class bearing_linear_solver():
     def __init__(self) -> None:
         pass
-    
+
     @staticmethod
-    def compute_reduced_Ab_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray, 
+    def compute_reduced_Ab_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray,
                                 k: int, xB: np.ndarray, yB: np.ndarray, zB: np.ndarray, R: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Compute the reduced A and b matrices for the bearing-only solver.
@@ -86,16 +87,16 @@ class bearing_linear_solver():
         r = R.flatten()
         A = np.zeros((2 * k, 3))
         b = np.zeros(2 * k)
-        
+
         for i in range(k):
             A[2 * i, 0] = np.sin(phi[i])
             A[2 * i, 1] = 0
             A[2 * i, 2] = -np.cos(theta[i]) * np.cos(phi[i])
-            
+
             A[2 * i + 1, 0] = 0
             A[2 * i + 1, 1] = np.sin(phi[i])
             A[2 * i + 1, 2] = -np.sin(theta[i]) * np.cos(phi[i])
-            
+
             AA = np.zeros((2, 9))
             AA[0, 0] = uA[i] * np.sin(phi[i])
             AA[0, 1] = vA[i] * np.sin(phi[i])
@@ -106,7 +107,7 @@ class bearing_linear_solver():
             AA[0, 6] = -uA[i] * np.cos(theta[i]) * np.cos(phi[i])
             AA[0, 7] = -vA[i] * np.cos(theta[i]) * np.cos(phi[i])
             AA[0, 8] = -wA[i] * np.cos(theta[i]) * np.cos(phi[i])
-            
+
             AA[0 + 1, 0] = 0
             AA[0 + 1, 1] = 0
             AA[0 + 1, 2] = 0
@@ -116,13 +117,13 @@ class bearing_linear_solver():
             AA[0 + 1, 6] = -uA[i] * np.sin(theta[i]) * np.cos(phi[i])
             AA[0 + 1, 7] = -vA[i] * np.sin(theta[i]) * np.cos(phi[i])
             AA[0 + 1, 8] = -wA[i] * np.sin(theta[i]) * np.cos(phi[i])
-            
+
             residual = AA.dot(r)
-            print(f'Residual: {residual}')
-            
+            logger.debug(f'Residual: {residual}')
+
             b[2 * i] = -np.cos(theta[i]) * np.cos(phi[i]) * zB[i] + np.sin(phi[i]) * xB[i] - residual[0]
             b[2 * i + 1] = -np.sin(theta[i]) * np.cos(phi[i]) * zB[i] + np.sin(phi[i]) * yB[i] -  residual[1]
-            
+
         return A, b
 
     @staticmethod
@@ -208,12 +209,12 @@ class bearing_linear_solver():
         - Ropt (np.ndarray): A 2D numpy array of shape (3, 3) representing the optimal rotation matrix.
         """
         U, S, Vt = np.linalg.svd(Rgt)
-        
+
         D = np.dot(Vt.T, U.T)
         if np.linalg.det(D) < 0:
             Vt[-1, :] *= -1
             D = np.dot(Vt.T, U.T)
-        
+
         Ropt = D.T
         return Ropt
 
@@ -236,11 +237,11 @@ class bearing_linear_solver():
             vec = bearing[:, i]
             phi = asin(vec[2])
             theta = atan2(vec[1], vec[0])
-            bearing_angle[:, i] = np.array([theta, phi])        
-        
+            bearing_angle[:, i] = np.array([theta, phi])
+
         A = bearing_linear_solver.compute_A_matrix(uvw[0,:], uvw[1,:], uvw[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
         b = bearing_linear_solver.compute_b_vector(xyz[0,:], xyz[1,:], xyz[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
-        
+
         # Solve for x using least squares
         from scipy.linalg import solve, lstsq
         x = solve(A, b)
@@ -250,20 +251,202 @@ class bearing_linear_solver():
         R = bearing_linear_solver.orthogonal_procrustes(R)
         # t = x[9:]
         logger.debug(f'R: {R}')
-        
+
         A1,b1 = bearing_linear_solver.compute_reduced_Ab_matrix(uvw[0,:], uvw[1,:], uvw[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1], xyz[0,:], xyz[1,:], xyz[2,:], R)
-        
+
         x1, res, rnk, s = lstsq(A1, b1)
         logger.debug(f'Solution x: {x1}')
-        t = x1[:3]        
+        t = x1[:3]
         logger.debug(f't: {t}')
-        
+
         return R, t
-    
+
+    @staticmethod
+    def solve_with_sdp_sdr(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
+        bearing_angle = np.zeros((2, bearing.shape[1]))
+        for i in range(bearing.shape[1]):
+            vec = bearing[:, i]
+            phi = asin(vec[2])
+            theta = atan2(vec[1], vec[0])
+            bearing_angle[:, i] = np.array([theta, phi])
+
+
+        A = bearing_linear_solver.compute_A_matrix(uvw[0,:], uvw[1,:], uvw[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
+        b = bearing_linear_solver.compute_b_vector(xyz[0,:], xyz[1,:], xyz[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
+
+        P1 = np.hstack([A, b.reshape(-1,1)])
+        # P is 13 x 13
+        P = P1.T@P1
+
+        Q = []
+        ndim = P.shape[0]
+        """
+        generate matrix for the following constraints
+        [ a1^2 + a2^2 + a3^2, - 1
+          a1*a4 + a2*a5 + a3*a6,
+          a1*a7 + a2*a8 + a3*a9]
+        [   a4^2 + a5^2 + a6^2 - 1,
+            a4*a7 + a5*a8 + a6*a9]
+        [   a7^2 + a8^2 + a9^2 - 1]
+        """
+        Q1 = np.zeros((ndim,ndim))
+        Q1[[0,1,2],[0,1,2]] = 1; Q1[12,12] = -1
+        Q2 = np.zeros((ndim,ndim))
+        Q2[[0,1,2],[3,4,5]] = 1
+        Q3 = np.zeros((ndim,ndim))
+        Q3[[0,1,2],[6,7,8]] = 1
+        Q4 = np.zeros((ndim,ndim))
+        Q4[[3,4,5],[3,4,5]] = 1; Q4[12,12] = -1
+        Q5 = np.zeros((ndim,ndim))
+        Q5[[3,4,5],[6,7,8]] = 1
+        Q6 = np.zeros((ndim,ndim))
+        Q6[[6,7,8],[6,7,8]] = 1; Q6[12,12] = -1
+        Q.append(Q1)
+        Q.append(Q2)
+        Q.append(Q3)
+        Q.append(Q4)
+        Q.append(Q5)
+        Q.append(Q6)
+
+        """
+        generate matrix for the following constraints
+        [ a1^2 + a4^2 + a7^2 - 1,
+          a1*a2 + a4*a5 + a7*a8,
+          a1*a3 + a4*a6 + a7*a9]
+        [   a2^2 + a5^2 + a8^2 - 1,
+            a2*a3 + a5*a6 + a8*a9]
+        [   a3^2 + a6^2 + a9^2 - 1]
+        """
+        Q7 = np.zeros((ndim,ndim))
+        Q7[[0,3,6],[0,3,6]] = 1; Q7[12,12] = -1
+        Q8 = np.zeros((ndim,ndim))
+        Q8[[0,3,6],[1,4,7]] = 1
+        Q9 = np.zeros((ndim,ndim))
+        Q9[[0,3,6],[2,5,8]] = 1
+        Q10 = np.zeros((ndim,ndim))
+        Q10[[1,4,7],[1,4,7]] = 1; Q10[12,12] = -1
+        Q11 = np.zeros((ndim,ndim))
+        Q11[[1,4,7],[2,5,8]] = 1
+        Q12 = np.zeros((ndim,ndim))
+        Q12[[2,5,8],[2,5,8]] = 1; Q12[12,12] = -1
+        Q.append(Q7)
+        Q.append(Q8)
+        Q.append(Q9)
+        Q.append(Q10)
+        Q.append(Q11)
+        Q.append(Q12)
+        """
+        generate matrix for the following constraints
+        [a1 - a5*a9 + a6*a8,
+         a2 + a4*a9 - a6*a7,
+         a3 - a4*a8 + a5*a7]
+        """
+        Q13 = np.zeros((ndim,ndim))
+        Q13[0,12] = -1; Q13[4,8] = -1; Q13[5,7] = 1
+        Q14 = np.zeros((ndim,ndim))
+        Q14[1,12] = -1; Q14[3,8] =  1; Q14[5,6] = -1
+        Q15 = np.zeros((ndim,ndim))
+        Q15[2,12] = -1; Q15[3,7] = -1; Q15[4,6] = 1
+        Q.append(Q13)
+        Q.append(Q14)
+        Q.append(Q15)
+        """
+        generate matrix for the following constraints
+        [a4 + a2*a9 - a3*a8,
+         a5 - a1*a9 + a3*a7,
+         a6 + a1*a8 - a2*a7]
+        """
+        Q16 = np.zeros((ndim,ndim))
+        Q16[3,12] = -1; Q16[1,8] =  1; Q16[2,7] = -1
+        Q17 = np.zeros((ndim,ndim))
+        Q17[4,12] = -1; Q17[0,8] =  -1; Q17[2,6] = 1
+        Q18 = np.zeros((ndim,ndim))
+        Q18[5,12] = -1; Q18[0,7] = 1; Q18[1,6] = -1
+        Q.append(Q16)
+        Q.append(Q17)
+        Q.append(Q18)
+        """
+        generate matrix for the following constraints
+        [a7 - a2*a6 + a3*a5,
+         a8 + a1*a6 - a3*a4,
+         a9 - a1*a5 + a2*a4]
+        """
+        Q19 = np.zeros((ndim,ndim))
+        Q19[6,12] = -1; Q19[1,5] = -1; Q19[2,4] = 1
+        Q20 = np.zeros((ndim,ndim))
+        Q20[7,12] = -1; Q20[0,5] =  1; Q20[2,3] = -1
+        Q21 = np.zeros((ndim,ndim))
+        Q21[8,12] = -1; Q21[0,4] = -1; Q21[1,3] = 1
+        Q.append(Q19)
+        Q.append(Q20)
+        Q.append(Q21)
+        Q22 = np.zeros((ndim, ndim))
+        Q22[12,12] = 1
+        Q.append(Q22)
+        # [  a1^2,  a1*a2,  a1*a3,  a1*a4,  a1*a5,  a1*a6,  a1*a7,  a1*a8,  a1*a9,  a1*a10,  a1*a11,  a1*a12,  -a1]
+        # [ a1*a2,   a2^2,  a2*a3,  a2*a4,  a2*a5,  a2*a6,  a2*a7,  a2*a8,  a2*a9,  a2*a10,  a2*a11,  a2*a12,  -a2]
+        # [ a1*a3,  a2*a3,   a3^2,  a3*a4,  a3*a5,  a3*a6,  a3*a7,  a3*a8,  a3*a9,  a3*a10,  a3*a11,  a3*a12,  -a3]
+        # [ a1*a4,  a2*a4,  a3*a4,   a4^2,  a4*a5,  a4*a6,  a4*a7,  a4*a8,  a4*a9,  a4*a10,  a4*a11,  a4*a12,  -a4]
+        # [ a1*a5,  a2*a5,  a3*a5,  a4*a5,   a5^2,  a5*a6,  a5*a7,  a5*a8,  a5*a9,  a5*a10,  a5*a11,  a5*a12,  -a5]
+        # [ a1*a6,  a2*a6,  a3*a6,  a4*a6,  a5*a6,   a6^2,  a6*a7,  a6*a8,  a6*a9,  a6*a10,  a6*a11,  a6*a12,  -a6]
+        # [ a1*a7,  a2*a7,  a3*a7,  a4*a7,  a5*a7,  a6*a7,   a7^2,  a7*a8,  a7*a9,  a7*a10,  a7*a11,  a7*a12,  -a7]
+        # [ a1*a8,  a2*a8,  a3*a8,  a4*a8,  a5*a8,  a6*a8,  a7*a8,   a8^2,  a8*a9,  a8*a10,  a8*a11,  a8*a12,  -a8]
+        # [ a1*a9,  a2*a9,  a3*a9,  a4*a9,  a5*a9,  a6*a9,  a7*a9,  a8*a9,   a9^2,  a9*a10,  a9*a11,  a9*a12,  -a9]
+        # [a1*a10, a2*a10, a3*a10, a4*a10, a5*a10, a6*a10, a7*a10, a8*a10, a9*a10,   a10^2, a10*a11, a10*a12, -a10]
+        # [a1*a11, a2*a11, a3*a11, a4*a11, a5*a11, a6*a11, a7*a11, a8*a11, a9*a11, a10*a11,   a11^2, a11*a12, -a11]
+        # [a1*a12, a2*a12, a3*a12, a4*a12, a5*a12, a6*a12, a7*a12, a8*a12, a9*a12, a10*a12, a11*a12,   a12^2, -a12]
+        # [   -a1,    -a2,    -a3,    -a4,    -a5,    -a6,    -a7,    -a8,    -a9,    -a10,    -a11,    -a12,    1]
+        # Define and solve the CVXPY problem.
+        # Create a symmetric matrix variable.
+        X = cp.Variable((ndim,ndim), symmetric=True)
+        # The operator >> denotes matrix inequality.
+        constraints = [X >> 0]
+        constraints += [
+            cp.trace(Q[i] @ X) == 0 for i in range(21)
+        ]
+        constraints += [cp.trace(Q[-1] @ X) == 1]
+        # logger.warning(cp.trace(Q[-1]@X))
+        logger.debug(constraints)
+        prob = cp.Problem(cp.Minimize(cp.trace(P @ X)),
+                  constraints)
+        prob.solve(solver = cp.MOSEK)
+
+        # Print result.
+        logger.debug("The optimal value is", prob.value)
+        logger.debug("A solution X is")
+        logger.debug(X.value)
+        sol = X.value
+
+        # Perform SVD on the solution matrix
+        U, S, Vt = np.linalg.svd(sol)
+
+        # Keep only the largest singular value
+        S_rank1 = np.zeros_like(S)
+        S_rank1[0] = S[0]
+
+        # Construct the rank-1 approximation
+        sol_rank1 = U[:, 0:1] @ np.diag(S_rank1[0:1]) @ Vt[0:1, :]
+
+        # Log the rank-1 approximation
+        logger.debug("Rank-1 approximation of the solution X is")
+        logger.debug(sol_rank1)
+
+        xsol = np.sqrt(np.diag(sol_rank1))
+
+        R = xsol[:9].reshape(3, 3)
+        t = xsol[9:-1]
+        R = bearing_linear_solver.orthogonal_procrustes(R)
+        logger.debug(f'Solution xsol: {xsol}')
+
+        return R, t
+
+
+
+
 class bgpnp():
     def __init__(self) -> None:
         pass
-    
+
     @staticmethod
     def solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
         """
@@ -274,16 +457,16 @@ class bgpnp():
             p2 (np.ndarray): The 2D coordinates of the points in the second image.
             bearing (np.ndarray): The bearing angles of the points.
             sol_iter (bool): Flag indicating whether to perform iterative refinement.
-    
+
         Returns:
             tuple: A tuple containing the rotation matrix (R), translation vector (T), and error (err).
         """
         M, b, Alph, Cw = bgpnp.prepare_data(p1, bearing, p2)
         Km = bgpnp.kernel_noise(M, b, dimker=4)
         R, t, err = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=True)
-        
+
         return R, t, err
-    
+
     @staticmethod
     def define_control_points() -> np.ndarray:
         """
@@ -299,7 +482,7 @@ class bgpnp():
             [0, 0, 0]
         ])
         return Cw
-    
+
     @staticmethod
     def compute_alphas(Xw:np.ndarray, Cw:np.ndarray) -> np.ndarray:
         """
@@ -319,16 +502,16 @@ class bgpnp():
         # Generate auxiliary matrix to compute alphas
         C = np.vstack((Cw.T, np.ones((1, 4)))) # 4x4
         X = np.vstack((Xw.T, np.ones((1, n)))) # 4xn
-        
+
         logger.debug(f'C: {C.shape}')
         logger.debug(f'C: {C}')
-        
+
         Alph_ = np.linalg.inv(C) @ X # 4xn
 
         Alph = Alph_.T # nx4
         return Alph
-    
-    @staticmethod 
+
+    @staticmethod
     def myProcrustes(X, Y):
         """
         Perform Procrustes analysis to find the best transformation between two sets of points.
@@ -373,7 +556,7 @@ class bgpnp():
         logger.debug(f'L: {L}')
         logger.debug(f'D: {D}')
         logger.debug(f'M: {Mt.T}')
-        
+
         R = Mt.T @ np.diag([1, 1, np.sign(np.linalg.det(Mt.T @ L.T))]) @ L.T
         logger.debug(f'R: {R}')
 
@@ -386,7 +569,7 @@ class bgpnp():
         logger.debug(f'mc: {mc}')
 
         return R, b, mc
-    
+
     def KernelPnP(Cw: np.ndarray, Km: np.ndarray, dims: int = 4, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
         """
         Computes the Kernel Perspective-n-Point (KernelPnP) algorithm.
@@ -418,11 +601,11 @@ class bgpnp():
 
         # procrustes solution for the first kernel vector
         R, b, mc = bgpnp.myProcrustes(X, vK)
-                
+
         solV = b * vK
         solR = R
         solmc = mc
-                
+
         # procrustes solution using 4 kernel eigenvectors
         err = np.inf
         if sol_iter:
@@ -432,12 +615,12 @@ class bgpnp():
                 A = R @ (-mc + X['P'])
                 abcd = np.linalg.lstsq(Km, A.T.flatten(), rcond=None)[0]
                 newV = np.reshape(Km @ abcd, (dims, -1)).T
-                
+
                 logger.debug(f'Iteration: {iter}')
                 logger.debug(f'A: {A}')
                 logger.debug(f'abcd: {abcd}')
                 logger.debug(f'newV: {newV}')
-                
+
                 # euclidean error
                 newerr = np.linalg.norm(R.T @ newV + mc - X['P'],2)
                 logger.debug(f'newerr: {newerr}')
@@ -448,14 +631,14 @@ class bgpnp():
                     # procrustes solution
                     R, b, mc = bgpnp.myProcrustes(X, newV)
                     solV = b * newV
-                    
+
                     solmc = mc
                     solR = R
                     err = newerr
-        
+
         R = solR
         mV = np.mean(solV, axis=1)
-        
+
         T = mV - R @ X['mP']
         logger.info(f'Final solution: {R}, {T}')
         return R, T, err
@@ -477,7 +660,7 @@ class bgpnp():
         U, S, V = np.linalg.svd(M)
         V = V.T
         logger.debug(f'U: {V}')
-        
+
         K[:, 0:dimker-1] = V[:, -dimker+1:]
         logger.debug(f'K: {K}')
         logger.debug(f'np.linalg.pinv(M) @ b: {np.linalg.pinv(M) @ b}')
@@ -485,8 +668,8 @@ class bgpnp():
             K[:, -1] = np.linalg.pinv(M) @ b
         else:
             K[:, -1] = np.linalg.pinv(M) @ b
-        
-        return K                                    
+
+        return K
 
 
     @staticmethod
@@ -506,11 +689,11 @@ class bgpnp():
         if Cw is None:
             logger.info('Control points not provided. Defining control points.')
             Cw = bgpnp.define_control_points()
-        
+
         logger.debug(f'Cw: {Cw}')
         Alph = bgpnp.compute_alphas(p, Cw)
         M, b = bgpnp.compute_Mb(bearing, Alph, pb)
-        
+
         return M, b, Alph, Cw
 
     @staticmethod
@@ -555,7 +738,7 @@ class bgpnp():
 
             M[3 * i:3 * i + 3, :] = np.kron(Alph[i], S)
             b[3 * i:3 * i + 3] = S.dot(p2[i])
-                    
+
         return M, b
 
 
@@ -573,14 +756,14 @@ def bearing_only_solver(folder: str, file: str):
     files = [os.path.join(folder, f) for f in os.listdir(folder) if file in f]
 
     solver = bearing_linear_solver()
-    
+
     for f in files:
         data = load_simulation_data(f)
         logger.debug(data["p1"])
         logger.debug(data["p2"].shape)
         logger.debug(data["Rgt"])
         logger.debug(data["tgt"])
-        
+
         uvw = data["p1"]
         xyz = data["p2"]
         bearing = data["bearing"]
@@ -590,7 +773,10 @@ def bearing_only_solver(folder: str, file: str):
         logger.info(f'Solution R: {R}')
         logger.info(f't: {t}')
 
+        R1, t1 = solver.solve_with_sdp_sdr(uvw, xyz, bearing)
+        logger.info(f'Solution R: {R1}')
+        logger.info(f't: {t1}')
+
+
 if __name__ == "__main__":
     bearing_only_solver('../taes/', 'simu_')
-    
-    
