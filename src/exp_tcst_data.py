@@ -11,7 +11,7 @@ logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)
 logger = logging.getLogger(__name__)
 
 def compute_simulation_data(folder: str = '../2/') -> None:
-    save_data_folder = folder + 'simulation_data/'
+    save_data_folder = folder
     prefix = 'batch_'
 
     import os
@@ -21,7 +21,7 @@ def compute_simulation_data(folder: str = '../2/') -> None:
 
     errors = {}
     failures = {'bgpnp': 0, 'bls': 0, 'bsdp': 0}
-
+    times = {'bgpnp': [], 'bls': [], 'bsdp': []}
     for f in files:
         logger.info(f"Processing file: {f}")
         data = load_simulation_data(f)
@@ -35,11 +35,14 @@ def compute_simulation_data(folder: str = '../2/') -> None:
         bearing = data["bearing"]
 
         try:
-            R1, t1, _ = bgpnp.solve(uvw.T, xyz.T, bearing.T, True)
+            # timeit
+            (R1, t1, err), time = bgpnp.solve(uvw.T, xyz.T, bearing.T, True)
+            times['bgpnp'].append(time)
+            logger.warning(err)
         except Exception as e:  # Corrected the typo and added exception handling
             R1, t1 = np.eye(3), np.zeros(3)
             failures['bgpnp'] += 1
-            logger.info(f"An error occurred: {e}")  # Optional: Print the exception message for debugging
+            logger.info(f"bgpnp An error occurred: {e}")  # Optional: Print the exception message for debugging
 
         bearing_angle = np.zeros((2, data["bearing"].shape[1]))
         for i in range(data["bearing"].shape[1]):
@@ -49,18 +52,20 @@ def compute_simulation_data(folder: str = '../2/') -> None:
             bearing_angle[:, i] = np.array([theta, phi])
 
         try:
-            R2, t2 = bearing_linear_solver.solve(uvw, xyz, bearing)
+            (R2, t2), time = bearing_linear_solver.solve(uvw, xyz, bearing)
+            times['bls'].append(time)
         except Exception as e:  # Corrected the typo and added exception handling
             R2, t2 = np.eye(3), np.zeros(3)
             failures['bls'] += 1
-            logger.info(f"An error occurred: {e}")  # Optional: Print the exception message for debugging
+            logger.info(f"bls An error occurred: {e}")  # Optional: Print the exception message for debugging
 
         try:
-            R3, t3 = bearing_linear_solver.solve_with_sdp_sdr(uvw, xyz, bearing)
+            (R3, t3), time = bearing_linear_solver.solve_with_sdp_sdr(uvw, xyz, bearing)
+            times['bsdp'].append(time)
         except Exception as e:  # Corrected the typo and added exception handling
             R3, t3 = np.eye(3), np.zeros(3)
             failures['bsdp'] += 1
-            logger.info(f"An error occurred: {e}")  # Optional: Print the exception message for debugging
+            logger.info(f"bsdp An error occurred: {e}")  # Optional: Print the exception message for debugging
 
         logger.debug(f'R1: {R1}')
         logger.debug(f'R2: {R2}')
@@ -79,7 +84,7 @@ def compute_simulation_data(folder: str = '../2/') -> None:
         errors['bsdp_tra'] = errors.get('bsdp_tra', []) + [np.linalg.norm(t3 - data["tgt"])]
 
     # save the errors as npz file
-    np.savez(save_data_folder + 'errors.npz', **errors)
+    # np.savez(save_data_folder + 'errors.npz', **errors)
 
     # plot the errors
     import matplotlib.pyplot as plt
@@ -109,8 +114,24 @@ def compute_simulation_data(folder: str = '../2/') -> None:
     # Adjust layout to prevent overlap
     plt.tight_layout()
 
-    # Show the plots
+    # draw another plot showing the times, use boxplot
+    fig, ax = plt.subplots()
+    # Prepare data for boxplot
+    data = [times['bgpnp'], times['bls'], times['bsdp']]
+    labels = ['BGPnP', 'BLS', 'BSDP']
+
+    # Create the boxplot
+    ax.boxplot(data, labels=labels)
+
+    # Set title and labels
+    ax.set_title('Execution Times')
+    ax.set_xlabel('Method')
+    ax.set_ylabel('Time (s)')
+    ax.grid(True)
+
+    # Show the plot
     plt.show()
+
 
 if __name__ == '__main__':
     import argparse

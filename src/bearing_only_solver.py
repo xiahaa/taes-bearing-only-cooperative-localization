@@ -4,12 +4,23 @@ import logging
 from math import sin, cos, tan, asin, acos, atan2, fabs, sqrt
 from typing import Optional, Tuple
 import cvxpy as cp
+import time
 
 logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
     datefmt='%Y-%m-%d:%H:%M:%S',
     level=logging.INFO)
 
 logger = logging.getLogger(__name__)
+
+def timeit(func):
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        elapsed_time = end - start
+        logger.info(f"Elapsed time: {elapsed_time} seconds")
+        return result, elapsed_time
+    return wrapper
 
 def load_simulation_data(filename: str) -> dict:
     """
@@ -219,6 +230,7 @@ class bearing_linear_solver():
         return Ropt
 
     @staticmethod
+    @timeit
     def solve(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
         """
         Solve the bearing-only problem given the sensor positions, target positions, and bearing angles.
@@ -244,7 +256,8 @@ class bearing_linear_solver():
 
         # Solve for x using least squares
         from scipy.linalg import solve, lstsq
-        x = solve(A, b)
+        # x = solve(A, b)
+        x = lstsq(A, b)[0]
         logger.debug(f'Solution x: {x}')
 
         R = x[:9].reshape(3, 3)
@@ -262,6 +275,7 @@ class bearing_linear_solver():
         return R, t
 
     @staticmethod
+    @timeit
     def solve_with_sdp_sdr(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
         bearing_angle = np.zeros((2, bearing.shape[1]))
         for i in range(bearing.shape[1]):
@@ -448,6 +462,7 @@ class bgpnp():
         pass
 
     @staticmethod
+    @timeit
     def solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
         """
         Compute the Bearing Generalized Perspective-n-Point (BGPnP) algorithm.
@@ -570,7 +585,7 @@ class bgpnp():
 
         return R, b, mc
 
-    def KernelPnP(Cw: np.ndarray, Km: np.ndarray, dims: int = 4, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
+    def KernelPnP(Cw: np.ndarray, Km: np.ndarray, dims: int = 4, sol_iter: bool = True, tol = 1e-6) -> Tuple[np.ndarray, np.ndarray, float]:
         """
         Computes the Kernel Perspective-n-Point (KernelPnP) algorithm.
 
@@ -625,7 +640,8 @@ class bgpnp():
                 newerr = np.linalg.norm(R.T @ newV + mc - X['P'],2)
                 logger.debug(f'newerr: {newerr}')
 
-                if ((newerr > err) and (iter > 2)) or newerr < 1e-6:
+                if ((newerr > err) and (iter > 2)) or newerr < tol:
+                    logger.warning(f'Converged after {iter} iterations.')
                     break
                 else:
                     # procrustes solution
@@ -768,12 +784,12 @@ def bearing_only_solver(folder: str, file: str):
         xyz = data["p2"]
         bearing = data["bearing"]
 
-        R, t = solver.solve(uvw, xyz, bearing)
+        (R, t), time = solver.solve(uvw, xyz, bearing)
 
         logger.info(f'Solution R: {R}')
         logger.info(f't: {t}')
 
-        R1, t1 = solver.solve_with_sdp_sdr(uvw, xyz, bearing)
+        (R1, t1), time = solver.solve_with_sdp_sdr(uvw, xyz, bearing)
         logger.info(f'Solution R: {R1}')
         logger.info(f't: {t1}')
 
