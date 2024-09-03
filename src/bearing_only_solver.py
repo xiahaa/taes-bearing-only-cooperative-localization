@@ -18,7 +18,7 @@ def timeit(func):
         result = func(*args, **kwargs)
         end = time.time()
         elapsed_time = end - start
-        logger.info(f"Elapsed time: {elapsed_time} seconds")
+        logger.debug(f"Elapsed time: {elapsed_time} seconds")
         return result, elapsed_time
     return wrapper
 
@@ -262,16 +262,8 @@ class bearing_linear_solver():
 
         R = x[:9].reshape(3, 3)
         R = bearing_linear_solver.orthogonal_procrustes(R)
-        # t = x[9:]
+        t = x[9:]
         logger.debug(f'R: {R}')
-
-        A1,b1 = bearing_linear_solver.compute_reduced_Ab_matrix(uvw[0,:], uvw[1,:], uvw[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1], xyz[0,:], xyz[1,:], xyz[2,:], R)
-
-        x1, res, rnk, s = lstsq(A1, b1)
-        logger.debug(f'Solution x: {x1}')
-        t = x1[:3]
-        logger.debug(f't: {t}')
-
         return R, t
 
     @staticmethod
