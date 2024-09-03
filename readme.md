@@ -121,18 +121,25 @@ The bgpnp class provides several static methods to perform various computations 
 - numpy
 - scipy
 - logging
+- sophuspy
 Install the dependencies using pip:
 ```bash
 pip install numpy scipy
 ```
 
+# experiment
+## TCST data simulation
+Call `python exp_tcst_data.py` to run benchmark experiment on the data sampled from the following reference.
+> Reference:
+> N. T. Hung, F. F. C. Rego and A. M. Pascoal,
+> "Cooperative Distributed Estimation and Control of Multiple Autonomous Vehicles for Range-Based Underwater Target Localization and Pursuit," in IEEE Transactions on Control Systems Technology, doi: 10.1109/TCST.2021.3107346.
 
-# Simulation Data Processing
+## Simulation Data Processing
 This project contains scripts to process and save simulation data. The main functionalities include loading, processing, and saving simulation data in a specific format.
 
-## Files
+### Files
 - `load_data.py`: Contains functions to load and save simulation data.
-## Functions
+### Functions
 `save_simulation_data(simulation_data, folder: str, file: str)`
 
 This function saves the simulation data to text files.
@@ -156,12 +163,12 @@ This function generates simulation data for DTU.
     - Prepares data for two agents (agent_a and agent_b) using the prepare_data function.
     - Logs the length of agent_a.
 
-## Usage
+### Usage
 1. Ensure you have the necessary data files in the specified folder.
 2. Call the save_simulation_data function with the appropriate parameters to save the data.
 3. Use the gen_simulation_data_dtu function to generate and prepare simulation data for DTU.
 
-## Example
+### Example
 ```python
 from load_data import save_simulation_data, gen_simulation_data_dtu
 
@@ -181,13 +188,13 @@ save_simulation_data(simulation_data, './data/', 'simulation_')
 gen_simulation_data_dtu()
 ```
 
-## Requirements
+# Requirements
 - Python 3.x
 - NumPy
 - cvxpy
 
-## License
+# License
 This project is licensed under the MIT License.
 
-## Contributing
+# Contributing
 Contributions are welcome! Please submit a pull request or open an issue to discuss your ideas.

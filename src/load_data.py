@@ -20,10 +20,10 @@ def refine_timestamp(imudata, rate: float = 200):
 
 def angle2dcm(yaw, pitch, roll, input_units='rad', rotation_sequence='321'):
     """
-    Returns a transformation matrix (aka direction cosine matrix or DCM) which 
-    transforms from navigation to body frame.  Other names commonly used, 
-    besides DCM, are `Cbody2nav` or `Rbody2nav`.  The rotation sequence 
-    specifies the order of rotations when going from navigation-frame to 
+    Returns a transformation matrix (aka direction cosine matrix or DCM) which
+    transforms from navigation to body frame.  Other names commonly used,
+    besides DCM, are `Cbody2nav` or `Rbody2nav`.  The rotation sequence
+    specifies the order of rotations when going from navigation-frame to
     body-frame.  The default is '321' (i.e Yaw -> Pitch -> Roll).
     Parameters
     ----------
@@ -31,13 +31,13 @@ def angle2dcm(yaw, pitch, roll, input_units='rad', rotation_sequence='321'):
     pitch : pitch angle, units of input_units.
     roll  : roll angle , units of input_units.
     input_units: units for input angles {'rad', 'deg'}, optional.
-    rotationSequence: assumed rotation sequence {'321', others can be 
+    rotationSequence: assumed rotation sequence {'321', others can be
                                                 implemented in the future}.
     Returns
     -------
     Rnav2body: 3x3 transformation matrix (numpy matrix data type).  This can be
                used to convert from navigation-frame (e.g NED) to body frame.
-        
+
     Notes
     -----
     Since Rnav2body is a proper transformation matrix, the inverse
@@ -54,8 +54,8 @@ def angle2dcm(yaw, pitch, roll, input_units='rad', rotation_sequence='321'):
     matrix([[-2.53642664],
             [ 0.        ],
             [ 9.4660731 ]])
-            
-    >>> g_ned_check = Rnav2body.T * g_body 
+
+    >>> g_ned_check = Rnav2body.T * g_body
     >>> np.linalg.norm(g_ned_check - g_ned) < 1e-10 # should match g_ned
     True
     Reference
@@ -84,12 +84,12 @@ def angle2dcm(yaw, pitch, roll, input_units='rad', rotation_sequence='321'):
                 [-s_y*c_r + c_y*s_p*s_r,  c_y*c_r + s_y*s_p*s_r,  c_p*s_r],
                 [ s_y*s_r + c_y*s_p*c_r, -c_y*s_r + s_y*s_p*c_r,  c_p*c_r]])
 
-    else: 
+    else:
         # No other rotation sequence is currently implemented
         logger.warning('WARNING (angle2dcm): requested rotation_sequence is unavailable.')
         logger.warning('                     NaN returned.')
         Rnav2body = np.nan
-    
+
     return Rnav2body
 
 def dcm2q(R):
@@ -131,7 +131,7 @@ class ImuGPS():
         self.vg = np.empty(0)
         self.ag = np.empty(0)
         self.q = np.empty(0)
-        
+
     @staticmethod
     def get_vg_ag(vb: np.ndarray, ab: np.ndarray, \
         roll: np.ndarray, pitch: np.ndarray, yaw: np.ndarray):
@@ -143,9 +143,9 @@ class ImuGPS():
             vg[i] = R.dot(vb[i])
             ag[i] = R.dot(ab[i])
             q[:, i] = dcm2q(R)
-        
+
         return vg, ag, q
-        
+
     def convert(self, imugps: np.ndarray):
         # refine timestamp
         imugps = refine_timestamp(imugps)
@@ -170,7 +170,7 @@ class ImuGPS():
         # from deg/s to rad/s
         self.w = np.deg2rad(self.w)
         self.gyrp_bias = np.deg2rad(self.gyrp_bias)
-        
+
         vg, ag, q = self.get_vg_ag(self.vb, self.ab, self.roll, self.pitch, self.yaw)
         self.vg = vg
         self.ag = ag
@@ -178,10 +178,10 @@ class ImuGPS():
 
     def __str__(self) -> str:
         return "{}".format(self.p)
-    
+
     def __len__(self) -> int:
         return len(self.time)
-    
+
     def remove_unmatched(self, keep_idx: List[int]):
         idx = [i for i in range(len(self.time)) if i not in keep_idx]
         self.time = np.delete(self.time, idx)
@@ -198,19 +198,19 @@ class ImuGPS():
         self.vg = np.delete(self.vg, idx)
         self.ag = np.delete(self.ag, idx)
         self.q = np.delete(self.q, idx)
-        
+
         logger.warning("remove {} unmatched data: {}".format(len(idx), idx))
 
 def prepare_data(folder: str, file: str) -> np.ndarray:
     mat_fname = folder + file
     mat_contents = sio.loadmat(mat_fname)
-    
+
     keys = [key for key in mat_contents.keys() if 'imugps' in key]
     imugps = mat_contents[keys[0]]
-    
+
     imugps_loader = ImuGPS()
     imugps_loader.convert(imugps)
-    
+
     return imugps_loader
 
 def align_data(agent_1, agent_2, tol = 1e-3):
@@ -226,10 +226,10 @@ def align_data(agent_1, agent_2, tol = 1e-3):
 
     idx1 = [pair[0] for pair in matched_pairs]
     idx2 = [pair[1] for pair in matched_pairs]
-    
+
     agent_1.remove_unmatched(idx1)
     agent_2.remove_unmatched(idx2)
-    
+
     return agent_1, agent_2
 
 
@@ -242,7 +242,7 @@ def test():
     imu.convert(imugps)
 
     print((imugps).shape)
-    
+
     # ok, pass matlab toolbox test
     yaw = 10
     pitch = 20.323
@@ -251,17 +251,17 @@ def test():
     print(R)
     q = dcm2q(R)
     print(q)
-    
+
     return
 
 def prepare_bearing_data(agent1, agent2, batch_size: int = 6, max_size: int = 2000):
-    # prepare bearing data
+    # prepare bearing data， todo: there is a bug in the bearing calculation
     simulation_data = []
 
     for i in range(0, min(max_size, len(agent1) - batch_size), batch_size):
         # rotation matrix from agent1's body frame to global frame
         # R1 = angle2dcm(agent1.yaw[i], agent1.pitch[i], agent1.roll[i])
-        # rotation matrix from agent2's body frame to global frame        
+        # rotation matrix from agent2's body frame to global frame
         R2_i = angle2dcm(agent2.yaw[i], agent2.pitch[i], agent2.roll[i])
         p2_i = agent2.p[i]
         R2_i_T = R2_i.T
@@ -272,13 +272,13 @@ def prepare_bearing_data(agent1, agent2, batch_size: int = 6, max_size: int = 20
             # R_j2i = R2_i.T.dot(R2_j)
             p2 = agent2.p[i+j]
             p2_relative[:, j] = (R2_i_T.dot(p2 - p2_i))
-            
+
         ## Agent A records and broadcasts its position in the global frame p^A1_A(k). uvw in equation 1
         p1_global = np.zeros((3, batch_size))
         for j in range(batch_size):
             p1 = agent1.p[i+j]
             p1_global[:, j] = p1
-        
+
         ## now compute the bearing vector from agent2 to agent1
         # This directional measurement is therefore naturally referenced to the body-fixed frame B4.
         # Agent B’s attitude, i.e. orientation with respect to the INS frames B2 and B3 is known.
@@ -291,14 +291,14 @@ def prepare_bearing_data(agent1, agent2, batch_size: int = 6, max_size: int = 20
             vec = p1 - p2
             # normalize
             vec = vec / np.linalg.norm(vec)
-            # transform to agent2's body frame: theoretically, the bearing vector will be in B4 frame, 
-            # as the paper assumes that we know the transformation from B4 to B2, 
+            # transform to agent2's body frame: theoretically, the bearing vector will be in B4 frame,
+            # as the paper assumes that we know the transformation from B4 to B2,
             # so we just need to transform the bearing vector from B4 to B2
             bearing[:, j] = (R2_i_T.dot(vec))
-        
-        #  The localisation problem can be reduced to solving for R^B2_A1 \in SO(3) with entries rij and t^B2_A1 \in R3 with entries ti. 
+
+        #  The localisation problem can be reduced to solving for R^B2_A1 \in SO(3) with entries rij and t^B2_A1 \in R3 with entries ti.
         simulation_data.append({"p1": p1_global, "p2": p2_relative, "bearing": bearing, "Rgt": R2_i.T, "tgt": -R2_i.dot(p2_i).reshape(3,-1)})
-            
+
     return simulation_data
 
 
@@ -348,27 +348,27 @@ def gen_simulation_data_dtu():
 
     logger.debug(len(agent_a))
     logger.debug(len(agent_b))
-    
+
     # align data: remove unmatched data, it seems that data has been already synchronized.
-    # align_data(agent_a, agent_b)    
+    # align_data(agent_a, agent_b)
     # logger.debug(len(agent_a))
     # logger.debug(len(agent_b))
-    
+
     logger.debug((agent_b.p.shape))
-    
+
     simulation_data = prepare_bearing_data(agent_a, agent_b, batch_size=6, max_size=2000)
-    
+
     save_simulation_data(simulation_data, '../1/simulation_data/', 'batch_')
 
 
 def orthogonal_procrustes(Rgt):
     U, S, Vt = np.linalg.svd(Rgt)
-    
+
     D = np.dot(Vt.T, U.T)
     if np.linalg.det(D) < 0:
         Vt[-1, :] *= -1
         D = np.dot(Vt.T, U.T)
-    
+
     Ropt = D.T
     return Ropt
 
@@ -376,69 +376,69 @@ def gen_simulation_data_taes():
     Rgt = np.array([[1, -0.032, 3.78e-5],[0.032, 1, 0.002], [-0.98e-5, -0.002, 1]])
     Tgt = np.array([[854.87, 6.18, 1.93]]).T
     Ropt = orthogonal_procrustes(Rgt)
-    
+
     logger.debug(Ropt)
     logger.debug(Rgt)
-    
+
     p1_global = np.array([[349.1, -924.1, 374.4],
                           [781.0, -870.3, 372.5],
                           [1007.0, -522.7, 373.3],
                           [869.8, -91.3, 373.2],
                           [431.4, 56.6, 373.1],
                           [33.9, -262.2, 373.6]]).T
-    
+
     p2_relative = np.array([[1039.2, 574.2, 311.3],
                             [1486.1, 519.4, 310.9],
                             [1946.2, 458.2, 310.2],
                             [2140.4, 746.9, 309.8],
                             [2201.6, 1166.4, 308.8],
                             [2032.8, 1477.7, 310.2]]).T
-    
+
     bearing_angle = np.array([[-1.4403, 0.0447],
                             [-1.4409, 0.0474],
                             [-1.6430, 0.0697],
                             [-2.0459, 0.0723],
                             [-2.2708, 0.0464],
                             [-2.1512, 0.0317]]).T
-        
+
     # p2_global = np.array([[202.5, 561.3, 310.4],
     #                      [647.3, 492.1, 309.9],
     #                      [1105.2, 416.2, 309.1],
     #                      [1308.6, 698.5, 309.2],
     #                      [1383.2, 1115.8, 309.0],
     #                      [1224.5, 1432.5, 310.9]]).T
-    
+
     p2_global = np.zeros((3, p2_relative.shape[1]))
     for i in range(p2_relative.shape[1]):
         p2_global[:, i] = (Ropt.T@(p2_relative[:, i].reshape(3,1) - Tgt)).flatten()
 
     # logger.debug(p2_global)
     # logger.debug(p2_global)
-    
+
     bearing_computed = np.zeros((3, p2_relative.shape[1]))
     for i in range(p2_global.shape[1]):
         vec = p1_global[:,i] - p2_global[:,i]
         vec = vec / np.linalg.norm(vec)
         bearing_computed[:, i] = Ropt.dot(vec)
-        
+
     bearing_angle = np.zeros((2, bearing_angle.shape[1]))
     for i in range(bearing_computed.shape[1]):
         vec = bearing_computed[:, i]
         phi = asin(vec[2])
         theta = atan2(vec[1], vec[0])
-        bearing_angle[:, i] = np.array([theta, phi])           
+        bearing_angle[:, i] = np.array([theta, phi])
 
     logger.info(bearing_angle)
-    
+
     def from_bearingangle_to_bearing_vec(theta, phi):
         return np.array([cos(theta) * cos(phi), cos(phi) * sin(theta), sin(phi)])
-    
+
     bearing = np.zeros((3, bearing_angle.shape[1]))
     for i in range(bearing_angle.shape[1]):
         bearing[:, i] = from_bearingangle_to_bearing_vec(bearing_angle[0, i], bearing_angle[1, i])
 
     ## check bearing correctness
-    
+
     logger.info(bearing)
     logger.info(bearing_computed)
 
@@ -446,19 +446,11 @@ def gen_simulation_data_taes():
     # logger.debug(bearingang_computed)
 
     simulation_data = []
-    
+
     logger.info(Ropt)
     simulation_data.append({"p1": p1_global, "p2": p2_relative, "bearing": bearing_computed, "Rgt": Ropt, "tgt": Tgt})
-    
+
     save_simulation_data(simulation_data, '../taes/', 'simu_')
 
 if __name__ == '__main__':
     gen_simulation_data_taes()
-
-    
-
-
-
-
-
-

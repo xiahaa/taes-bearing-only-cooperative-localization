@@ -463,7 +463,7 @@ class bgpnp():
         """
         M, b, Alph, Cw = bgpnp.prepare_data(p1, bearing, p2)
         Km = bgpnp.kernel_noise(M, b, dimker=4)
-        R, t, err = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=True)
+        R, t, err = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=sol_iter)
 
         return R, t, err
 
@@ -640,7 +640,7 @@ class bgpnp():
         mV = np.mean(solV, axis=1)
 
         T = mV - R @ X['mP']
-        logger.info(f'Final solution: {R}, {T}')
+        logger.debug(f'Final solution: {R}, {T}')
         return R, T, err
 
     @staticmethod
@@ -687,7 +687,7 @@ class bgpnp():
             Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: A tuple containing the computed matrices M and b, the array of alphas Alph, and the array of control points Cw.
         """
         if Cw is None:
-            logger.info('Control points not provided. Defining control points.')
+            logger.debug('Control points not provided. Defining control points.')
             Cw = bgpnp.define_control_points()
 
         logger.debug(f'Cw: {Cw}')
