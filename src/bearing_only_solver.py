@@ -460,8 +460,8 @@ class bgpnp():
         Compute the Bearing Generalized Perspective-n-Point (BGPnP) algorithm.
 
         Args:
-            p1 (np.ndarray): The 2D coordinates of the points in the first image.
-            p2 (np.ndarray): The 2D coordinates of the points in the second image.
+            p1 (np.ndarray): The 3D coordinates of the points in global frame.
+            p2 (np.ndarray): The 3D coordinates of the points in local frame.
             bearing (np.ndarray): The bearing angles of the points.
             sol_iter (bool): Flag indicating whether to perform iterative refinement.
 
