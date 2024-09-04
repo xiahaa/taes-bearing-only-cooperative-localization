@@ -513,7 +513,8 @@ class bgpnp():
         logger.debug(f'C: {C.shape}')
         logger.debug(f'C: {C}')
 
-        Alph_ = np.linalg.inv(C) @ X # 4xn
+        # Alph_ = np.linalg.inv(C) @ X # 4xn
+        Alph_ = np.linalg.solve(C, X)  # 4xn
 
         Alph = Alph_.T # nx4
         return Alph
@@ -551,25 +552,20 @@ class bgpnp():
 
         """
         dims = Y.shape[1]
-        mY = np.mean(Y, axis=1)
-        cY = Y - mY.reshape(Y.shape[0], 1)
+        mY = np.mean(Y, axis=1, keepdims=True)
+        cY = Y - mY
         ncY = np.linalg.norm(cY)
         tcY = cY / ncY
 
         A = np.dot(X['nP'], tcY.T)
-        L, D, Mt = np.linalg.svd(A)
-
-        logger.debug(f'A: {A}')
-        logger.debug(f'L: {L}')
-        logger.debug(f'D: {D}')
-        logger.debug(f'M: {Mt.T}')
+        L, D, Mt = np.linalg.svd(A, full_matrices=False)
 
         R = Mt.T @ np.diag([1, 1, np.sign(np.linalg.det(Mt.T @ L.T))]) @ L.T
         logger.debug(f'R: {R}')
 
         b = np.sum(np.diag(D)) * X['norm'] / ncY
         logger.debug(f'b: {b}')
-        c = X['mP'] - np.dot(b, np.dot(R.T, mY))
+        c = X['mP'] - b * (R.T @ mY).flatten()
         logger.debug(f'c: {c}')
 
         mc = np.tile(c, (dims,1)).T
@@ -590,21 +586,16 @@ class bgpnp():
         Returns:
             tuple: A tuple containing the rotation matrix (R), translation vector (T), and error (err).
         """
-        vK = np.reshape(Km[:, -1], (dims, -1)).T
+        vK = Km[:, -1].reshape(dims, -1).T
         logger.debug(f'vK: {vK}')
         # precomputations
         X = {}
         X['P'] = Cw.T
-        logger.debug(X['P'])
         X['mP'] = np.mean(X['P'], axis=1)
-        logger.debug(X['mP'])
         X['cP'] = X['P'] - X['mP'].reshape(3, 1)
-        logger.debug(X['cP'])
 
         X['norm'] = np.linalg.norm(X['cP'])
-        logger.debug(X['norm'])
         X['nP'] = X['cP'] / X['norm']
-        logger.debug(X['nP'])
 
         # procrustes solution for the first kernel vector
         R, b, mc = bgpnp.myProcrustes(X, vK)
@@ -625,15 +616,13 @@ class bgpnp():
 
                 logger.debug(f'Iteration: {iter}')
                 logger.debug(f'A: {A}')
-                logger.debug(f'abcd: {abcd}')
-                logger.debug(f'newV: {newV}')
 
                 # euclidean error
                 newerr = np.linalg.norm(R.T @ newV + mc - X['P'],2)
                 logger.debug(f'newerr: {newerr}')
 
                 if ((newerr > err) and (iter > 2)) or newerr < tol:
-                    logger.warning(f'Converged after {iter} iterations.')
+                    logger.debug(f'Converged after {iter} iterations.')
                     break
                 else:
                     # procrustes solution
@@ -665,17 +654,18 @@ class bgpnp():
         - K: Kernel noise matrix of shape (12, dimker)
         """
         K = np.zeros((M.shape[1], dimker))
-        U, S, V = np.linalg.svd(M)
+        U, S, V = np.linalg.svd(M, full_matrices=False)
         V = V.T
         logger.debug(f'U: {V}')
 
         K[:, 0:dimker-1] = V[:, -dimker+1:]
-        logger.debug(f'K: {K}')
-        logger.debug(f'np.linalg.pinv(M) @ b: {np.linalg.pinv(M) @ b}')
-        if np.linalg.matrix_rank(M) < 12:
-            K[:, -1] = np.linalg.pinv(M) @ b
-        else:
-            K[:, -1] = np.linalg.pinv(M) @ b
+        # logger.debug(f'K: {K}')
+        # logger.debug(f'np.linalg.pinv(M) @ b: {np.linalg.pinv(M) @ b}')
+        # if np.linalg.matrix_rank(M) < 12:
+            # K[:, -1] = np.linalg.pinv(M) @ b
+        # else:
+            # K[:, -1] = np.linalg.pinv(M) @ b
+        K[:, -1] = np.linalg.pinv(M) @ b
 
         return K
 
@@ -722,6 +712,15 @@ class bgpnp():
         ])
 
     @staticmethod
+    def kron_A_N(A, N):  # Simulates np.kron(A, np.eye(N))
+        m,n = A.shape
+        out = np.zeros((m,N,n,N),dtype=A.dtype)
+        r = np.arange(N)
+        out[:,r,:,r] = A
+        out.shape = (m*N,n*N)
+        return out
+
+    @staticmethod
     def compute_Mb(bearing: np.ndarray, Alph: np.ndarray, p2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Compute the M and b matrix.
@@ -736,16 +735,31 @@ class bgpnp():
                 - M (np.ndarray): The M matrix of shape (3n, 12).
                 - b (np.ndarray): The b vector of shape (3n,).
         """
-        M = np.zeros((3 * bearing.shape[0], 12))
-        b = np.zeros(3 * bearing.shape[0])
-        for i in range(bearing.shape[0]):
-            S = bgpnp.skew_symmetric_matrix(bearing[i])
-            logger.debug(f'bearing: {bearing[i]}')
-            logger.debug(f'S: {S}')
-            logger.debug(f'Alph: {Alph[i]}')
+        # M = bgpnp.kron_A_N(Alph, 3) #np.zeros((3 * bearing.shape[0], 12))
+        # b = np.zeros(3 * bearing.shape[0])
+        # logger.debug(M.shape)
+        # for i in range(bearing.shape[0]):
+        #     S = bgpnp.skew_symmetric_matrix(bearing[i])
+        #     logger.debug(f'bearing: {bearing[i]}')
+        #     logger.debug(f'S: {S}')
+        #     logger.debug(f'Alph: {Alph[i]}')
 
-            M[3 * i:3 * i + 3, :] = np.kron(Alph[i], S)
-            b[3 * i:3 * i + 3] = S.dot(p2[i])
+        #     M[3 * i:3 * i + 3, :] =  S @ M[3 * i:3 * i + 3, :] #np.kron(Alph[i], S)
+        #     b[3 * i:3 * i + 3] = S.dot(p2[i])
+
+        # return M, b
+        n = bearing.shape[0]
+        M = bgpnp.kron_A_N(Alph, 3)
+        b = np.zeros(3 * n)
+
+        # Compute skew-symmetric matrices for all bearings
+        S = np.array([bgpnp.skew_symmetric_matrix(b) for b in bearing])
+
+        # Vectorized computation of M
+        M = np.einsum('ijk,ikl->ijl', S, M.reshape(n, 3, 12)).reshape(3 * n, 12)
+
+        # Vectorized computation of b
+        b = np.einsum('ijk,ik->ij', S, p2).reshape(3 * n)
 
         return M, b
 
@@ -785,6 +799,7 @@ def bearing_only_solver(folder: str, file: str):
         logger.info(f'Solution R: {R1}')
         logger.info(f't: {t1}')
 
+        (R2, t2, err), time = bgpnp.solve(uvw.T, xyz.T, bearing.T)
 
 if __name__ == "__main__":
     bearing_only_solver('../taes/', 'simu_')
