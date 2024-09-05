@@ -9,11 +9,11 @@ class TestBGPNP(unittest.TestCase):
         p1 = np.array([[7.922073295595544, 0.357116785741896, 6.787351548577734, 3.922270195341682, 7.060460880196088, 0.461713906311539],
               [9.594924263929030, 8.491293058687772, 7.577401305783335, 6.554778901775567, 0.318328463774207, 0.971317812358475],
               [6.557406991565868, 9.339932477575505, 7.431324681249162, 1.711866878115618, 2.769229849608900, 8.234578283272926]]).T
-        
+
         bearing = np.array([[0.917193663829810, 0.753729094278495, 0.075854289563064, 0.779167230102011, 0.568823660872193, 0.337122644398882],
                       [0.285839018820374, 0.380445846975357, 0.053950118666607, 0.934010684229183, 0.469390641058206, 0.162182308193243],
                       [0.757200229110721, 0.567821640725221, 0.530797553008973, 0.129906208473730, 0.011902069501241, 0.794284540683907]]).T
-        
+
         p2 = np.array([[0.547215529963803, 0.257508254123736, 0.814284826068816, 0.349983765984809, 0.616044676146639, 0.830828627896291],
                       [0.138624442828679, 0.840717255983663, 0.243524968724989, 0.196595250431208, 0.473288848902729, 0.585264091152724],
                       [0.149294005559057, 0.254282178971531, 0.929263623187228, 0.251083857976031, 0.351659507062997, 0.549723608291140]]).T
@@ -27,9 +27,9 @@ class TestBGPNP(unittest.TestCase):
 
         Cw = bgpnp.define_control_points()
         Alph = bgpnp.compute_alphas(p1, Cw)
-        
+
         self.assertTrue(np.allclose(Alph, Alph_exp, atol=1e-8))
-        
+
         M_exp = np.array([[0, -5.99859571445687, 2.26443765783611, 0, -7.26527885094708, 2.74260373725727, 0, -4.96527007638592, 1.87436278047505, 0, 17.4719444126792, -6.59556515674805],
                         [5.99859571445687, 0, -7.26607543111557, 7.26527885094708, 0, -8.80040373980261, 4.96527007638592, 0, -6.01441214381751, -17.4719444126792, 0, 21.1636976509059],
                         [-2.26443765783611, 7.26607543111557, 0, -2.74260373725727, 8.80040373980261, 0, -1.87436278047505, 6.01441214381751, 0, 6.59556515674805, -21.1636976509059, 0],
@@ -69,21 +69,21 @@ class TestBGPNP(unittest.TestCase):
                          0.0625600734958692])
 
         M, b = bgpnp.compute_Mb(bearing, Alph, p2)
-        
+
         self.assertTrue(np.allclose(M, M_exp, atol=1e-8))
         self.assertTrue(np.allclose(b, b_exp, atol=1e-8))
-   
+
         Cw_exp = np.array([[1, 0, 0, 0],
                       [0, 1, 0, 0],
                       [0, 0, 1, 0]]).T
-        
+
         M, b, Alph, Cw = bgpnp.prepare_data(p1, bearing, p2)
-        
+
         self.assertTrue(np.allclose(M, M_exp, atol=1e-8))
         self.assertTrue(np.allclose(b, b_exp, atol=1e-8))
         self.assertTrue(np.allclose(Alph, Alph_exp, atol=1e-8))
         self.assertTrue(np.allclose(Cw, Cw_exp, atol=1e-8))
-        
+
         K_exp = np.array([[-0.502128662527832, -0.00761058047813126, 0.328980489262086, -0.163909011133070],
                  [0.204333672402349, -0.0956200980484484, 0.399438734855135, -0.0406734578653991],
                  [0.0130532537188014, 0.406449942133586, -0.0320363398039213, 1.29409125909179],
@@ -96,26 +96,26 @@ class TestBGPNP(unittest.TestCase):
                  [-0.393054273083579, 0.119657715780114, 0.317316219194961, 0.279256073976895],
                  [0.316017348419923, -0.0253973993460821, 0.405171984503371, 0.310337587274863],
                  [0.0649629043213577, 0.493174453111536, -0.0459977643599648, 1.58527202732892]])
-        
+
         # this is a bit tricky, because the SVD function is not deterministic
         K = bgpnp.kernel_noise(M, b)
         self.assertTrue(np.allclose(K[:,-1], K_exp[:,-1], atol=1e-8))
-        
+
         R_exp = np.array([
             [-0.604060934331712, 0.794830603036038, -0.0579197728903451],
             [0.155793977008544, 0.0465003943658136, -0.986694456278987],
             [-0.781561657415563, -0.605047126925823, -0.151918892362490]
         ])
         t_exp = np.array([0.368295677831339, 0.758935286322908, 2.92883210365382])
-        
+
         R, t, _ = bgpnp.KernelPnP(Cw, K)
         self.assertTrue(np.allclose(R, R_exp, atol=1e-8))
         self.assertTrue(np.allclose(t, t_exp, atol=1e-8))
-        
+
     # Test case 2
     def test_bgpnp(self):
         from bearing_only_solver import bgpnp, bearing_linear_solver, load_simulation_data
-        import numpy as np 
+        import numpy as np
         import os
         import logging
         from math import sin, cos, tan, asin, acos, atan2, fabs, sqrt
@@ -124,11 +124,11 @@ class TestBGPNP(unittest.TestCase):
             datefmt='%Y-%m-%d:%H:%M:%S',
             level=logging.INFO)
         logger = logging.getLogger(__name__)
-        
+
         gpath = os.path.dirname(os.path.realpath(__file__))
         folder = os.path.join(gpath, '../taes/')
         file = 'simu_'
-        
+
         files = [os.path.join(folder, f) for f in os.listdir(folder) if file in f]
 
         for f in files:
@@ -137,32 +137,30 @@ class TestBGPNP(unittest.TestCase):
             logger.debug(data["p2"].shape)
             logger.debug(data["Rgt"])
             logger.debug(data["tgt"])
-        
+
             uvw = data["p1"]
             xyz = data["p2"]
             bearing = data["bearing"]
 
-            R1, t1, _ = bgpnp.solve(uvw.T, xyz.T, bearing.T, True)
+            (R1, t1, _), time = bgpnp.solve(uvw.T, xyz.T, bearing.T, True)
 
             bearing_angle = np.zeros((2, data["bearing"].shape[1]))
             for i in range(data["bearing"].shape[1]):
                 vec = data["bearing"][:, i]
                 phi = asin(vec[2])
                 theta = atan2(vec[1], vec[0])
-                bearing_angle[:, i] = np.array([theta, phi])   
+                bearing_angle[:, i] = np.array([theta, phi])
 
-            R2, t2 = bearing_linear_solver.solve(uvw, xyz, bearing)
-            
+            (R2, t2), time = bearing_linear_solver.solve(uvw, xyz, bearing)
+
             logger.info(f'R1: {R1}')
             logger.info(f'R2: {R2}')
             logger.info(f't1: {t1}')
             logger.info(f't2: {t2}')
-            
+
             self.assertTrue(np.allclose(R1, R2, atol=1e-8))
             self.assertTrue(np.allclose(t1, t2, atol=1e-8))
-   
+
 if __name__ == '__main__':
     if __name__ == '__main__':
         unittest.main()
-
-
