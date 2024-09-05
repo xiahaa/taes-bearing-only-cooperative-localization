@@ -132,6 +132,22 @@ class ImuGPS():
         self.ag = np.empty(0)
         self.q = np.empty(0)
 
+    def jump_sample(self, n: int):
+        self.time = self.time[::n]
+        self.GPStime = self.GPStime[::n]
+        self.p = self.p[::n]
+        self.vb = self.vb[::n]
+        self.ab = self.ab[::n]
+        self.roll = self.roll[::n]
+        self.pitch = self.pitch[::n]
+        self.yaw = self.yaw[::n]
+        self.w = self.w[::n]
+        self.acc_bias = self.acc_bias[::n]
+        self.gyrp_bias = self.gyrp_bias[::n]
+        self.vg = self.vg[::n]
+        self.ag = self.ag[::n]
+        self.q = self.q[::n]
+
     @staticmethod
     def get_vg_ag(vb: np.ndarray, ab: np.ndarray, \
         roll: np.ndarray, pitch: np.ndarray, yaw: np.ndarray):
@@ -258,13 +274,21 @@ def prepare_bearing_data(agent1, agent2, batch_size: int = 6, max_size: int = 20
     # prepare bearing data， todo: there is a bug in the bearing calculation
     simulation_data = []
 
+    logger.warning("agent1: {}, agent2: {}".format(len(agent1), len(agent2)))
+
+    # 200 hz, so
+    agent1.jump_sample(200)
+    agent2.jump_sample(200)
+
+    std_noise_on_theta = 0.000001 * np.pi / 180
+
     for i in range(0, min(max_size, len(agent1) - batch_size), batch_size):
         # rotation matrix from agent1's body frame to global frame
         # R1 = angle2dcm(agent1.yaw[i], agent1.pitch[i], agent1.roll[i])
         # rotation matrix from agent2's body frame to global frame
         R2_i = angle2dcm(agent2.yaw[i], agent2.pitch[i], agent2.roll[i])
         p2_i = agent2.p[i]
-        R2_i_T = R2_i.T
+        R2_i_T = R2_i.T # rotation matrix from global frame to agent2's body frame
         ## Agent B records its own position in the INS frame p^B2_B(k). xyz in equation 2
         p2_relative = np.zeros((3, batch_size))
         for j in range(batch_size):
@@ -284,7 +308,7 @@ def prepare_bearing_data(agent1, agent2, batch_size: int = 6, max_size: int = 20
         # Agent B’s attitude, i.e. orientation with respect to the INS frames B2 and B3 is known.
         # An expression for the DOA measurement referenced to the axes INS frames B3 can therefore be easily calculated.
         # let B3 denote the body-centred INS frame of Agent B (axes of frames B2 and B3 are parallel by definition),
-        bearing = np.zeros((3, batch_size))
+        bearing_computed = np.zeros((3, batch_size))
         for j in range(batch_size):
             p1 = agent1.p[i+j]
             p2 = agent2.p[i+j]
@@ -294,10 +318,21 @@ def prepare_bearing_data(agent1, agent2, batch_size: int = 6, max_size: int = 20
             # transform to agent2's body frame: theoretically, the bearing vector will be in B4 frame,
             # as the paper assumes that we know the transformation from B4 to B2,
             # so we just need to transform the bearing vector from B4 to B2
-            bearing[:, j] = (R2_i_T.dot(vec))
+            bearing_computed[:, j] = (R2_i_T.dot(vec))
+
+        bearing_angle = np.zeros((2, bearing_computed.shape[1]))
+        for j in range(bearing_computed.shape[1]):
+            vec = bearing_computed[:, j]
+            phi = asin(vec[2]) + np.random.randn() * std_noise_on_theta
+            theta = atan2(vec[1], vec[0]) + np.random.randn() * std_noise_on_theta
+            bearing_angle[:, j] = np.array([theta, phi])
+
+        f1 = lambda x: np.array([cos(x[0]) * cos(x[1]), cos(x[1]) * sin(x[0]), sin(x[1])])
+        bearing = [f1(bearing_angle[:, j]) for j in range(bearing_angle.shape[1])]
+        bearing = np.array(bearing).T
 
         #  The localisation problem can be reduced to solving for R^B2_A1 \in SO(3) with entries rij and t^B2_A1 \in R3 with entries ti.
-        simulation_data.append({"p1": p1_global, "p2": p2_relative, "bearing": bearing, "Rgt": R2_i.T, "tgt": -R2_i.dot(p2_i).reshape(3,-1)})
+        simulation_data.append({"p1": p1_global, "p2": p2_relative, "bearing": bearing, "Rgt": R2_i.T, "tgt": -R2_i.T.dot(p2_i).reshape(3,-1)})
 
     return simulation_data
 
@@ -339,7 +374,7 @@ def save_simulation_data(simulation_data, folder: str, file: str):
             f.write('\n')
 
 
-def gen_simulation_data_dtu():
+def gen_simulation_data_dtu(folder: str, batch_size: int = 6, max_size: int = 2000):
     folder = '../1/'
     file = 'imugps.mat'
     agent_a = prepare_data(folder, file)
@@ -356,8 +391,11 @@ def gen_simulation_data_dtu():
 
     logger.debug((agent_b.p.shape))
 
-    simulation_data = prepare_bearing_data(agent_a, agent_b, batch_size=6, max_size=2000)
+    simulation_data = prepare_bearing_data(agent_a, agent_b, batch_size, max_size)
 
+    import shutil
+    shutil.rmtree('../1/simulation_data/', ignore_errors=True)
+    os.makedirs('../1/simulation_data/', exist_ok=True)
     save_simulation_data(simulation_data, '../1/simulation_data/', 'batch_')
 
 
@@ -452,5 +490,134 @@ def gen_simulation_data_taes():
 
     save_simulation_data(simulation_data, '../taes/', 'simu_')
 
+def compute_simulation_data(folder: str = '../1/', prefix = 'batch_') -> None:
+    save_data_folder = folder # + 'simulation_data/'
+    # prefix = 'batch_'
+
+    import os
+    files = [os.path.join(save_data_folder, f) for f in os.listdir(save_data_folder) if prefix in f]
+    from bearing_only_solver import bgpnp, bearing_linear_solver, load_simulation_data
+    import sophuspy as sp
+
+    errors = {}
+    failures = {'bgpnp': 0, 'bls': 0, 'bsdp': 0}
+
+    for f in files:
+        logger.info(f"Processing file: {f}")
+        data = load_simulation_data(f)
+        logger.debug(data["p1"])
+        logger.debug(data["p2"].shape)
+        logger.debug(data["Rgt"])
+        logger.debug(data["tgt"])
+
+        uvw = data["p1"]
+        xyz = data["p2"]
+        bearing = data["bearing"]
+
+        try:
+            (R1, t1, _), time = bgpnp.solve(uvw.T, xyz.T, bearing.T, True)
+        except Exception as e:  # Corrected the typo and added exception handling
+            R1, t1 = np.eye(3), np.zeros(3)
+            failures['bgpnp'] += 1
+            logger.info(f"An error occurred: {e}")  # Optional: Print the exception message for debugging
+
+        bearing_angle = np.zeros((2, data["bearing"].shape[1]))
+        for i in range(data["bearing"].shape[1]):
+            vec = data["bearing"][:, i]
+            phi = asin(vec[2])
+            theta = atan2(vec[1], vec[0])
+            bearing_angle[:, i] = np.array([theta, phi])
+
+        try:
+            (R2, t2), time = bearing_linear_solver.solve(uvw, xyz, bearing)
+        except Exception as e:  # Corrected the typo and added exception handling
+            R2, t2 = np.eye(3), np.zeros(3)
+            failures['bls'] += 1
+            logger.info(f"An error occurred: {e}")  # Optional: Print the exception message for debugging
+
+        try:
+            (R3, t3), time = bearing_linear_solver.solve_with_sdp_sdr(uvw, xyz, bearing)
+        except Exception as e:  # Corrected the typo and added exception handling
+            R3, t3 = np.eye(3), np.zeros(3)
+            failures['bsdp'] += 1
+            logger.info(f"An error occurred: {e}")  # Optional: Print the exception message for debugging
+
+        logger.debug(f'R1: {R1}')
+        logger.debug(f'R2: {R2}')
+        logger.debug(f't1: {t1}')
+        logger.debug(f't2: {t2}')
+        logger.debug(f'Rgt: {data["Rgt"]}')
+        logger.debug(f'tgt: {data["tgt"]}')
+        logger.info(f'Error R: {np.linalg.norm(R1 - data["Rgt"])}')
+        logger.info(f'Error t: {np.linalg.norm(t1 - data["tgt"])}')
+        logger.info(f'Error R: {np.linalg.norm(R2 - data["Rgt"])}')
+        logger.info(f'Error t: {np.linalg.norm(t2 - data["tgt"])}')
+        logger.info(f'Error R: {np.linalg.norm(R3 - data["Rgt"])}')
+        logger.info(f'Error t: {np.linalg.norm(t3 - data["tgt"])}')
+
+
+        errors['bgpnp_rot'] = errors.get('bgpnp_rot', []) + [np.linalg.norm(R1 - data["Rgt"])]
+        errors['bgpnp_tra'] = errors.get('bgpnp_tra', []) + [np.linalg.norm(t1 - data["tgt"])/np.linalg.norm(data["tgt"])]
+        errors['bls_rot'] = errors.get('bls_rot', []) + [np.linalg.norm(R2 - data["Rgt"])]
+        errors['bls_tra'] = errors.get('bls_tra', []) + [np.linalg.norm(t2 - data["tgt"])/np.linalg.norm(data["tgt"])]
+        errors['bsdp_rot'] = errors.get('bsdp_rot', []) + [np.linalg.norm(R3 - data["Rgt"])]
+        errors['bsdp_tra'] = errors.get('bsdp_tra', []) + [np.linalg.norm(t3 - data["tgt"])/np.linalg.norm(data["tgt"])]
+
+    # save the errors as npz file
+    np.savez(save_data_folder + 'errors.npz', **errors)
+
+    # plot the errors
+    import matplotlib.pyplot as plt
+    # Create a figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+
+    # Plot rotation errors in the first subplot
+    ax1.plot(errors['bgpnp_rot'], label='BGPnP Rotation')
+    ax1.plot(errors['bls_rot'], label='BLS Rotation')
+    ax1.plot(errors['bsdp_rot'], label='BSDP Rotation')
+    ax1.set_title('Rotation Errors')
+    ax1.set_xlabel('Trial')
+    ax1.set_ylabel('Error')
+    ax1.legend()
+    ax1.grid(True)
+
+    # Plot translation errors in the second subplot
+    ax2.plot(errors['bgpnp_tra'], label='BGPnP Translation')
+    ax2.plot(errors['bls_tra'], label='BLS Translation')
+    ax2.plot(errors['bsdp_tra'], label='BSDP Translation')
+    ax2.set_title('Translation Errors')
+    ax2.set_xlabel('Trial')
+    ax2.set_ylabel('Error')
+    ax2.legend()
+    ax2.grid(True)
+
+    # Adjust layout to prevent overlap
+    plt.tight_layout()
+
+    # Show the plots
+    plt.show()
+
 if __name__ == '__main__':
-    gen_simulation_data_taes()
+    import argparse
+    parser = argparse.ArgumentParser(description='Generate simulation data for localization problem.')
+    parser.add_argument('--batch_size', type=int, default=6, help='The batch size for generating data.')
+    parser.add_argument('--max_size', type=int, default=2000, help='The maximum size of the data.')
+    parser.add_argument('--generate_taes', action='store_true', help='Generate simulation data.')
+    parser.add_argument('--generate_dtu', action='store_true', help='Generate simulation data.')
+    parser.add_argument('--folder', type=str, default='../1/', help='The folder path where the file is located.')
+    parser.add_argument('--simulate_dtu', action='store_true', help='Generate simulation data.')
+    parser.add_argument('--simulate_taes', action='store_true', help='Generate simulation data.')
+
+
+    args = parser.parse_args()
+    import os
+    if args.generate_taes:
+        gen_simulation_data_taes()
+    elif args.generate_dtu:
+        gen_simulation_data_dtu(args.folder, args.batch_size, args.max_size)
+    elif args.simulate_dtu:
+        compute_simulation_data(os.path.join(args.folder, 'simulation_data'))
+    elif args.simulate_taes:
+        compute_simulation_data(args.folder, prefix='simu_')
+    else:
+        raise ValueError("Invalid arguments")
