@@ -469,7 +469,8 @@ class bgpnp():
             tuple: A tuple containing the rotation matrix (R), translation vector (T), and error (err).
         """
         M, b, Alph, Cw = bgpnp.prepare_data(p1, bearing, p2)
-        Km = bgpnp.kernel_noise(M, b, dimker=4)
+        possible_dims = 4
+        Km = bgpnp.kernel_noise(M, b, dimker=possible_dims)
         R, t, err = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=sol_iter)
 
         return R, t, err
@@ -800,6 +801,10 @@ def bearing_only_solver(folder: str, file: str):
         logger.info(f't: {t1}')
 
         (R2, t2, err), time = bgpnp.solve(uvw.T, xyz.T, bearing.T)
+        logger.info(f'Solution R: {R2}')
+        logger.info(f't: {t2}')
+
+
 
 if __name__ == "__main__":
     bearing_only_solver('../taes/', 'simu_')
