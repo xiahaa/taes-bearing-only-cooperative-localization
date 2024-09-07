@@ -108,7 +108,7 @@ class TestBGPNP(unittest.TestCase):
         ])
         t_exp = np.array([0.368295677831339, 0.758935286322908, 2.92883210365382])
 
-        R, t, _ = bgpnp.KernelPnP(Cw, K)
+        R, t, _, _ = bgpnp.KernelPnP(Cw, K)
         self.assertTrue(np.allclose(R, R_exp, atol=1e-8))
         self.assertTrue(np.allclose(t, t_exp, atol=1e-8))
 

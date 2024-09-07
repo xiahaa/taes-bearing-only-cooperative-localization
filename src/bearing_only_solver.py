@@ -5,6 +5,7 @@ from math import sin, cos, tan, asin, acos, atan2, fabs, sqrt
 from typing import Optional, Tuple
 import cvxpy as cp
 import time
+from scipy.optimize import least_squares
 
 logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
     datefmt='%Y-%m-%d:%H:%M:%S',
@@ -418,7 +419,14 @@ class bearing_linear_solver():
 
         R = x[:9].reshape(3, 3)
         R = bearing_linear_solver.orthogonal_procrustes(R)
-        t = x[9:]
+
+        A1, b1 = bearing_linear_solver.compute_reduced_Ab_matrix(uvw[0,:], uvw[1,:], uvw[2,:],
+                                                             bearing_angle[1,:],
+                                                             bearing_angle[0,:],
+                                                             bearing_angle.shape[1],
+                                                             xyz[0,:], xyz[1,:], xyz[2,:],R)
+        x = lstsq(A1, b1)[0]
+        t = x[0:]
         logger.debug(f'R: {R}')
         return R, t
 
@@ -667,6 +675,52 @@ class bgpnp():
         return R, t, error
 
     @staticmethod
+    def refine(p2: np.ndarray, bearing: np.ndarray,
+               Alph: np.array, ctl_pts: np.array, Cw: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        # do a nonlinear least squares optimization
+        def fun(x, p2, bearing, alph):
+            M = bgpnp.kron_A_N(alph, 3) # 3n x 12
+            bearing_computed = M @ x
+            bearing_computed = bearing_computed.reshape(-1, 3) - p2
+            bearing_computed = bearing_computed / np.linalg.norm(bearing_computed, axis=1)[:, None]
+            error = np.linalg.norm(bearing_computed - bearing, axis=1)
+            # logger.warning(f'error: {error}')
+            return error
+
+        def fun2(x, p2, bearing, alph):
+            M = bgpnp.kron_A_N(alph, 3) # 3n x 12
+            bearing_computed = M @ x
+            bearing_computed = bearing_computed.reshape(-1, 3) - p2
+            bearing_computed = bearing_computed / np.linalg.norm(bearing_computed, axis=1)[:, None]
+            # do cross-product for each bearing
+            cross_products = np.cross(bearing_computed, bearing)
+            error = cross_products.reshape(-1)
+            # error = np.linalg.norm(cross_products, axis=1)
+            return error
+
+        x0 = ctl_pts.reshape(-1)
+        res = least_squares(fun2, x0, args=(p2, bearing, Alph), verbose=2)
+        x = res.x
+
+        X = {}
+        X['P'] = Cw.T
+        X['mP'] = np.mean(X['P'], axis=1)
+        X['cP'] = X['P'] - X['mP'].reshape(3, 1)
+
+        X['norm'] = np.linalg.norm(X['cP'])
+        X['nP'] = X['cP'] / X['norm']
+
+        # procrustes solution for the first kernel vector
+        dims = 4
+        vK = x.reshape(dims, -1).T
+        R, b, mc = bgpnp.myProcrustes(X, vK)
+        solV = b * vK
+        mV = np.mean(solV, axis=1)
+
+        T = mV - R @ X['mP']
+        return R, T
+
+    @staticmethod
     @timeit
     def solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
         """
@@ -684,7 +738,14 @@ class bgpnp():
         M, b, Alph, Cw = bgpnp.prepare_data(p1, bearing, p2)
         possible_dims = 4
         Km = bgpnp.kernel_noise(M, b, dimker=possible_dims)
-        R, t, err = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=sol_iter)
+        R, t, err, _ = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=sol_iter)
+
+        # Rr, tr = bgpnp.refine(p2, bearing, Alph, ctl_pts, Cw)
+
+        # logger.info(f'Initial R: {R}')
+        # logger.info(f'Initial t: {t}')
+        # logger.info(f'refined R: {Rr}')
+        # logger.info(f'refined t: {tr}')
 
         return R, t, err
 
@@ -817,7 +878,7 @@ class bgpnp():
         solV = b * vK
         solR = R
         solmc = mc
-
+        solVec = Km[:, -1]
         # procrustes solution using 4 kernel eigenvectors
         err = np.inf
         if sol_iter:
@@ -842,7 +903,7 @@ class bgpnp():
                     # procrustes solution
                     R, b, mc = bgpnp.myProcrustes(X, newV)
                     solV = b * newV
-
+                    solVec = newV
                     solmc = mc
                     solR = R
                     err = newerr
@@ -852,7 +913,7 @@ class bgpnp():
 
         T = mV - R @ X['mP']
         logger.debug(f'Final solution: {R}, {T}')
-        return R, T, err
+        return R, T, err, solVec
 
     @staticmethod
     def kernel_noise(M: np.ndarray, b: np.ndarray, dimker: int = 4) -> np.ndarray:
@@ -1003,17 +1064,28 @@ def bearing_only_solver(folder: str, file: str):
         uvw = data["p1"]
         xyz = data["p2"]
         bearing = data["bearing"]
+        std_noise_on_theta = 1e-1 * np.pi / 180
+        bearing_angle = np.zeros((2, bearing.shape[1]))
+        for j in range(bearing.shape[1]):
+            vec = bearing[:, j]
+            phi = asin(vec[2]) + np.random.randn() * std_noise_on_theta * 4
+            theta = atan2(vec[1], vec[0]) + np.random.randn() * std_noise_on_theta
+            bearing_angle[:, j] = np.array([theta, phi])
 
-        (R, t), time = solver.ransac_solve(uvw, xyz, bearing)
+        f1 = lambda x: np.array([cos(x[0]) * cos(x[1]), cos(x[1]) * sin(x[0]), sin(x[1])])
+        bearing = [f1(bearing_angle[:, j]) for j in range(bearing_angle.shape[1])]
+        bearing = np.array(bearing).T
+
+        (R, t), time = solver.solve(uvw, xyz, bearing)
 
         logger.info(f'Solution R: {R}')
         logger.info(f't: {t}')
 
-        (R1, t1), time = solver.ransac_solve_with_sdp_sdr(uvw, xyz, bearing)
+        (R1, t1), time = solver.solve_with_sdp_sdr(uvw, xyz, bearing)
         logger.info(f'Solution R: {R1}')
         logger.info(f't: {t1}')
 
-        (R2, t2, err), time = bgpnp.ransac_solve(uvw.T, xyz.T, bearing.T)
+        (R2, t2, err), time = bgpnp.solve(uvw.T, xyz.T, bearing.T)
         logger.info(f'Solution R: {R2}')
         logger.info(f't: {t2}')
 
