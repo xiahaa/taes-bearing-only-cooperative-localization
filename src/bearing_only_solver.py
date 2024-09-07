@@ -22,6 +22,28 @@ def timeit(func):
         return result, elapsed_time
     return wrapper
 
+def to_bearing_angle(bearing: np.ndarray) -> np.ndarray:
+    """
+    Convert a 3D vector to bearing angles.
+
+    Args:
+        vec (np.ndarray): The 3D vector to convert.
+
+    Returns:
+        np.ndarray: The bearing angles.
+    """
+    if bearing.shape[0] > bearing.shape[1]:
+        bearing = bearing.T
+
+    bearing_angle = np.zeros((2, bearing.shape[1]))
+    for j in range(bearing.shape[1]):
+        vec = bearing[:, j]
+        phi = asin(vec[2])
+        theta = atan2(vec[1], vec[0])
+        bearing_angle[:, j] = np.array([theta, phi])
+    return bearing_angle if bearing.shape[0] > bearing.shape[1] else bearing_angle.T
+
+
 def load_simulation_data(filename: str) -> dict:
     """
     Load simulation data from a file.
@@ -228,6 +250,140 @@ class bearing_linear_solver():
 
         Ropt = D.T
         return Ropt
+
+    @staticmethod
+    @timeit
+    def ransac_solve(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray,
+                     num_iterations: int = 500, threshold: float = 1e-2)-> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Solve the bearing-only problem using RANSAC.
+
+        Parameters:
+        - uvw (np.ndarray): Array of sensor positions. Shape: (3, n)
+        - xyz (np.ndarray): Array of target positions. Shape: (3, n)
+        - bearing (np.ndarray): Array of bearing angles. Shape: (3, n)
+        - num_iterations (int): The number of RANSAC iterations.
+        - threshold (float): The threshold for the RANSAC algorithm.
+
+        Returns:
+        - R (np.ndarray): The rotation matrix. Shape: (3, 3)
+        - t (np.ndarray): The translation vector. Shape: (3,)
+        - error (float): The error of the solution.
+        """
+        # Initialize the best error to a large value
+        best_error = -np.inf
+        best_R = None
+        best_t = None
+        min_num_points = 6
+        best_inliers = None
+        for i in range(0, num_iterations):
+            # Randomly sample 4 points
+            idx = np.random.choice(uvw.shape[1], min_num_points, replace=False)
+            uvw_sample = uvw[:, idx]
+            xyz_sample = xyz[:, idx]
+            bearing_sample = bearing[:, idx]
+
+            # Solve the bearing-only problem
+            (R, t), time = bearing_linear_solver.solve(uvw_sample, xyz_sample, bearing_sample)
+
+            # Compute the error
+            bearing_recomputed = np.zeros_like(bearing)
+            for j in range(uvw.shape[1]):
+                vec = R.dot(uvw[:, j]) + t - xyz[:, j]
+                vec = vec / np.linalg.norm(vec)
+                bearing_recomputed[:, j] = vec
+
+            bearing_angle_est = to_bearing_angle(bearing_recomputed)
+            bearing_angle_in = to_bearing_angle(bearing)
+
+            error = np.linalg.norm(bearing_angle_est - bearing_angle_in, axis=1)
+            num_inlier = (error < threshold).sum()
+            inliers = np.where(error < threshold)[0]
+
+            # Check if the error is less than the threshold
+            if num_inlier > best_error:
+                best_error = num_inlier
+                best_R = R
+                best_t = t
+                best_inliers = inliers
+
+        # Refine the solution using all inliers
+        if best_inliers is None:
+            uvw_inliers = uvw[:, best_inliers]
+            xyz_inliers = xyz[:, best_inliers]
+            bearing_inliers = bearing[:, best_inliers]
+            (R, t), time = bearing_linear_solver.solve(uvw_inliers, xyz_inliers, bearing_inliers)
+            return R, t
+        else:
+            return best_R, best_t
+
+    @staticmethod
+    @timeit
+    def ransac_solve_with_sdp_sdr(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray,
+                                    num_iterations: int = 500, threshold: float = 1e-2) -> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Solve the bearing-only problem using RANSAC.
+
+        Parameters:
+        - uvw (np.ndarray): Array of sensor positions. Shape: (3, n)
+        - xyz (np.ndarray): Array of target positions. Shape: (3, n)
+        - bearing (np.ndarray): Array of bearing angles. Shape: (3, n)
+        - num_iterations (int): The number of RANSAC iterations.
+        - threshold (float): The threshold for the RANSAC algorithm.
+
+        Returns:
+        - R (np.ndarray): The rotation matrix. Shape: (3, 3)
+        - t (np.ndarray): The translation vector. Shape: (3,)
+        - error (float): The error of the solution.
+        """
+        # Initialize the best error to a large value
+        best_error = -np.inf
+        best_R = None
+        best_t = None
+        min_num_points = 6
+        best_inliers = None
+        for i in range(0, num_iterations):
+            # Randomly sample 4 points
+            idx = np.random.choice(uvw.shape[1], min_num_points, replace=False)
+            uvw_sample = uvw[:, idx]
+            xyz_sample = xyz[:, idx]
+            bearing_sample = bearing[:, idx]
+
+            # Solve the bearing-only problem
+            (R, t), time = bearing_linear_solver.solve_with_sdp_sdr(uvw_sample, xyz_sample, bearing_sample)
+
+            # Compute the error
+            bearing_recomputed = np.zeros_like(bearing)
+            for j in range(uvw.shape[1]):
+                vec = R.dot(uvw[:, j]) + t - xyz[:, j]
+                vec = vec / np.linalg.norm(vec)
+                bearing_recomputed[:, j] = vec
+
+            bearing_angle_est = to_bearing_angle(bearing_recomputed)
+            bearing_angle_in = to_bearing_angle(bearing)
+
+            error = np.linalg.norm(bearing_angle_est - bearing_angle_in, axis=1)
+            # logger.warning(f'error: {error}')
+            num_inlier = (error < threshold).sum()
+            inliers = np.where(error < threshold)[0]
+            # logger.warning(f'Num inliers: {num_inlier}')
+            # Check if the error is less than the threshold
+            if num_inlier > best_error:
+                best_error = num_inlier
+                best_R = R
+                best_t = t
+                best_inliers = inliers
+
+        if best_inliers is None:
+            # Refine the solution using all inliers
+            uvw_inliers = uvw[:, best_inliers]
+            xyz_inliers = xyz[:, best_inliers]
+            bearing_inliers = bearing[:, best_inliers]
+            (R, t), time = bearing_linear_solver.solve_with_sdp_sdr(uvw_inliers, xyz_inliers, bearing_inliers)
+
+            return R, t
+        else:
+            return best_R, best_t
 
     @staticmethod
     @timeit
@@ -452,6 +608,63 @@ class bearing_linear_solver():
 class bgpnp():
     def __init__(self) -> None:
         pass
+
+    @staticmethod
+    @timeit
+    def ransac_solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray,
+                        num_iterations: int = 500, threshold: float = 1e-2) -> Tuple[np.ndarray, np.ndarray, float]:
+        # Initialize the best error to a large value
+        best_error = -np.inf
+        best_R = None
+        best_t = None
+        min_num_points = 6
+        best_inliers = None
+        for i in range(0, num_iterations):
+            # Randomly sample 4 points
+            idx = np.random.choice(p1.shape[0], min_num_points, replace=False)
+            p1_sample = p1[idx]
+            p2_sample = p2[idx]
+            bearing_sample = bearing[idx]
+
+            # Solve the BGPnP problem
+            (R, t, error), time = bgpnp.solve(p1_sample, p2_sample, bearing_sample, sol_iter=False)
+
+            # compute the error, nx3, nx3, nx3
+            bearing_recomputed = np.zeros_like(bearing)
+            for j in range(p1.shape[0]):
+                vec = R.dot(p1[j,:])+t - p2[j,:]
+                vec = vec/np.linalg.norm(vec)
+                bearing_recomputed[j,:] = vec
+
+            bearing_angle_est = to_bearing_angle(bearing_recomputed)
+            bearing_angle_in  = to_bearing_angle(bearing)
+
+            error = np.linalg.norm(bearing_angle_est - bearing_angle_in, axis=1)
+            # logger.warning(f'Error: {error}')
+            num_inlier = (error < threshold).sum()
+            inliers = np.where(error < threshold)[0]
+            # logger.warning(f'Error: {error}, Num inlier: {num_inlier}')
+            # logger.warning(f'i: {i}')
+
+            # Check if the error is less than the threshold
+            if num_inlier > best_error:
+                best_error = num_inlier
+                best_R = R
+                best_t = t
+                best_inliers = inliers
+
+        # refit the model using the inliers
+        # logger.info(f'Best inliers: {best_inliers}')
+        # logger.info(f'Best error: {best_error}')
+        p1_sample = p1[best_inliers]
+        p2_sample = p2[best_inliers]
+        bearing_sample = bearing[best_inliers]
+        # logger.info(f'p1_sample: {p1_sample.shape}')
+        # logger.info(f'p2_sample: {p2_sample.shape}')
+        # logger.info(f'bearing_sample: {bearing_sample.shape}')
+        (R, t, error), time = bgpnp.solve(p1_sample, p2_sample, bearing_sample, sol_iter=True)
+
+        return R, t, error
 
     @staticmethod
     @timeit
@@ -791,16 +1004,16 @@ def bearing_only_solver(folder: str, file: str):
         xyz = data["p2"]
         bearing = data["bearing"]
 
-        (R, t), time = solver.solve(uvw, xyz, bearing)
+        (R, t), time = solver.ransac_solve(uvw, xyz, bearing)
 
         logger.info(f'Solution R: {R}')
         logger.info(f't: {t}')
 
-        (R1, t1), time = solver.solve_with_sdp_sdr(uvw, xyz, bearing)
+        (R1, t1), time = solver.ransac_solve_with_sdp_sdr(uvw, xyz, bearing)
         logger.info(f'Solution R: {R1}')
         logger.info(f't: {t1}')
 
-        (R2, t2, err), time = bgpnp.solve(uvw.T, xyz.T, bearing.T)
+        (R2, t2, err), time = bgpnp.ransac_solve(uvw.T, xyz.T, bearing.T)
         logger.info(f'Solution R: {R2}')
         logger.info(f't: {t2}')
 
