@@ -6,6 +6,7 @@ from typing import Optional, Tuple
 import cvxpy as cp
 import time
 from scipy.optimize import least_squares
+from scipy.linalg import lstsq
 
 logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
     datefmt='%Y-%m-%d:%H:%M:%S',
@@ -940,7 +941,8 @@ class bgpnp():
             # K[:, -1] = np.linalg.pinv(M) @ b
         # else:
             # K[:, -1] = np.linalg.pinv(M) @ b
-        K[:, -1] = np.linalg.pinv(M) @ b
+
+        K[:, -1] = lstsq(M, b)[0]#np.linalg.pinv(M) @ b
 
         return K
 
