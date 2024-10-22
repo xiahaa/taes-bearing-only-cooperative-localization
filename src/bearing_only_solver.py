@@ -421,13 +421,13 @@ class bearing_linear_solver():
         R = x[:9].reshape(3, 3)
         R = bearing_linear_solver.orthogonal_procrustes(R)
 
-        A1, b1 = bearing_linear_solver.compute_reduced_Ab_matrix(uvw[0,:], uvw[1,:], uvw[2,:],
-                                                             bearing_angle[1,:],
-                                                             bearing_angle[0,:],
-                                                             bearing_angle.shape[1],
-                                                             xyz[0,:], xyz[1,:], xyz[2,:],R)
-        x = lstsq(A1, b1)[0]
-        t = x[0:]
+        # A1, b1 = bearing_linear_solver.compute_reduced_Ab_matrix(uvw[0,:], uvw[1,:], uvw[2,:],
+        #                                                      bearing_angle[1,:],
+        #                                                      bearing_angle[0,:],
+        #                                                      bearing_angle.shape[1],
+        #                                                      xyz[0,:], xyz[1,:], xyz[2,:],R)
+        # x = lstsq(A1, b1)[0]
+        t = x[9:]
         logger.debug(f'R: {R}')
         return R, t
 
@@ -723,6 +723,17 @@ class bgpnp():
 
     @staticmethod
     @timeit
+    def solve_new_loss(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
+        M, b, Alph, Cw = bgpnp.prepare_data_new_loss(p1, bearing, p2)
+        possible_dims = 4
+        Km = bgpnp.kernel_noise(M, b, dimker=possible_dims)
+        R, t, err, _ = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=sol_iter)
+
+        return R, t, err
+
+
+    @staticmethod
+    @timeit
     def solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
         """
         Compute the Bearing Generalized Perspective-n-Point (BGPnP) algorithm.
@@ -998,6 +1009,31 @@ class bgpnp():
         return out
 
     @staticmethod
+    def prepare_data_new_loss(p: np.ndarray, bearing: np.ndarray, pb: np.ndarray, Cw: np.ndarray = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        if Cw is None:
+            logger.debug('Control points not provided. Defining control points.')
+            Cw = bgpnp.define_control_points()
+
+        logger.debug(f'Cw: {Cw}')
+        Alph = bgpnp.compute_alphas(p, Cw)
+        M, b = bgpnp.compute_Mb_new_loss(bearing, Alph, pb)
+        # Morig, borig = bgpnp.compute_Mb(bearing, Alph, pb)
+        # logger.warning(f'b: {b}, borig: {borig}')
+        return M, b, Alph, Cw
+
+
+    @staticmethod
+    def compute_Mb_new_loss(bearing: np.ndarray, Alph: np.ndarray, p2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        M = np.zeros((3 * bearing.shape[0], 12))
+        b = np.zeros((3 * bearing.shape[0],))
+        for i in range(bearing.shape[0]):
+            S = np.eye(3) - bearing[i].reshape(3, 1) @ bearing[i].reshape(1, 3) / np.linalg.norm(bearing[i]) / np.linalg.norm(bearing[i])
+            M[3 * i:3 * i + 3, :] = S @ np.kron(Alph[i], np.eye(3))
+            b[3 * i:3 * i + 3] = S.dot(p2[i])
+        return M, b
+
+
+    @staticmethod
     def compute_Mb(bearing: np.ndarray, Alph: np.ndarray, p2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Compute the M and b matrix.
@@ -1066,11 +1102,11 @@ def bearing_only_solver(folder: str, file: str):
         uvw = data["p1"]
         xyz = data["p2"]
         bearing = data["bearing"]
-        std_noise_on_theta = 1e-1 * np.pi / 180
+        std_noise_on_theta = 1e-3 * np.pi / 180
         bearing_angle = np.zeros((2, bearing.shape[1]))
         for j in range(bearing.shape[1]):
             vec = bearing[:, j]
-            phi = asin(vec[2]) + np.random.randn() * std_noise_on_theta * 4
+            phi = asin(vec[2]) + np.random.randn() * std_noise_on_theta
             theta = atan2(vec[1], vec[0]) + np.random.randn() * std_noise_on_theta
             bearing_angle[:, j] = np.array([theta, phi])
 
@@ -1087,7 +1123,7 @@ def bearing_only_solver(folder: str, file: str):
         logger.info(f'Solution R: {R1}')
         logger.info(f't: {t1}')
 
-        (R2, t2, err), time = bgpnp.solve(uvw.T, xyz.T, bearing.T)
+        (R2, t2, err), time = bgpnp.solve_new_loss(uvw.T, xyz.T, bearing.T)
         logger.info(f'Solution R: {R2}')
         logger.info(f't: {t2}')
 
