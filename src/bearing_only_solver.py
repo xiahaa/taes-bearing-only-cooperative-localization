@@ -725,7 +725,7 @@ class bgpnp():
     @timeit
     def solve_new_loss(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
         M, b, Alph, Cw = bgpnp.prepare_data_new_loss(p1, bearing, p2)
-        possible_dims = 4
+        possible_dims = 6
         Km = bgpnp.kernel_noise(M, b, dimker=possible_dims)
         R, t, err, _ = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=sol_iter)
 
@@ -1088,6 +1088,8 @@ def bearing_only_solver(folder: str, file: str):
     Returns:
         None
     """
+    import sophuspy as sp
+
     files = [os.path.join(folder, f) for f in os.listdir(folder) if file in f]
 
     solver = bearing_linear_solver()
@@ -1102,7 +1104,7 @@ def bearing_only_solver(folder: str, file: str):
         uvw = data["p1"]
         xyz = data["p2"]
         bearing = data["bearing"]
-        std_noise_on_theta = 1e-3 * np.pi / 180
+        std_noise_on_theta = 0 * np.pi / 180
         bearing_angle = np.zeros((2, bearing.shape[1]))
         for j in range(bearing.shape[1]):
             vec = bearing[:, j]
@@ -1112,22 +1114,30 @@ def bearing_only_solver(folder: str, file: str):
 
         f1 = lambda x: np.array([cos(x[0]) * cos(x[1]), cos(x[1]) * sin(x[0]), sin(x[1])])
         bearing = [f1(bearing_angle[:, j]) for j in range(bearing_angle.shape[1])]
-        bearing = np.array(bearing).T
+        std_noise_on_bearing = 1e-3
+        Rperb = sp.SO3.exp(np.random.normal(0, std_noise_on_bearing, size=(3,))).matrix()
+        logger.warning(f'Rperb: {Rperb}')
+        bearing_noise = []
+        for i, b in enumerate(bearing):
+            logger.warning(f'Original bearing: {b}')
+            b = Rperb.dot(b)
+            logger.warning(f'Noisy bearing: {b}')
+            # b = b / np.linalg.norm(b)
+            bearing_noise.append(b)
+        bearing = np.array(bearing_noise).T
 
         (R, t), time = solver.solve(uvw, xyz, bearing)
 
         logger.info(f'Solution R: {R}')
         logger.info(f't: {t}')
 
-        (R1, t1), time = solver.solve_with_sdp_sdr(uvw, xyz, bearing)
-        logger.info(f'Solution R: {R1}')
-        logger.info(f't: {t1}')
-
-        (R2, t2, err), time = bgpnp.solve_new_loss(uvw.T, xyz.T, bearing.T)
+        (R2, t2, err), time = bgpnp.solve_new_loss(uvw.T, xyz.T, bearing.T, sol_iter=True)
         logger.info(f'Solution R: {R2}')
         logger.info(f't: {t2}')
 
-
+        (R1, t1), time = solver.solve_with_sdp_sdr(uvw, xyz, bearing)
+        logger.info(f'Solution R: {R1}')
+        logger.info(f't: {t1}')
 
 if __name__ == "__main__":
     bearing_only_solver('../taes/', 'simu_')
