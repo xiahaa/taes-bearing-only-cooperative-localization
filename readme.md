@@ -1,200 +1,350 @@
-# Bearing Only Solver
-This repository contains a Python implementation of a bearing-only solver. The solver is designed to compute the relative pose between two sets of points given their bearings.
+# Bearing-Only Cooperative Localization
 
-## `bearing_linear_solver` Class
-The `bearing_linear_solver` class implements the linear and the SDP bearing solver algorithm proposed in [1]. It provides methods to solve for the rotation matrix, translation vector, and error given 2D coordinates, bearing angles, and other parameters.
+This repository contains Python implementations of bearing-only localization algorithms for GPS-denied environments. The algorithms compute the relative pose (rotation and translation) between two agents using only bearing angle measurements to common landmarks.
 
-> Cooperative Localisation of a GPS-Denied UAV using Direction-of-Arrival Measurements. JS Russell, M Ye, BDO Anderson, H Hmam, P Sarunic. IEEE Transactions on Aerospace and Electronic Systems， 2019
+## Algorithms
 
-### For the SDP solver
-We use the `cvxpy` package for solving the semidefinite programming problem and the solver used is the MOSEK solver, for which you need to get a license (for research and students, it is free). After obatining the SDP solution, we do a rank-1 approximation by re-establishing the solution using the largest singular value as well as its singular vectors.
+### `bearing_linear_solver` Class
+The `bearing_linear_solver` class implements linear and semidefinite programming (SDP) based bearing solvers proposed in [1]. It provides methods to solve for the rotation matrix and translation vector given 3D point coordinates and bearing measurements.
+
+> **Reference:** Cooperative Localisation of a GPS-Denied UAV using Direction-of-Arrival Measurements. 
+> JS Russell, M Ye, BDO Anderson, H Hmam, P Sarunic. 
+> IEEE Transactions on Aerospace and Electronic Systems, 2019
+
+#### Available Methods
+
+- **`solve(uvw, xyz, bearing)`** - Linear least-squares solver
+  - Constructs measurement matrix from bearing constraints
+  - Solves using standard least-squares
+  - Fast but may be less accurate with noise
+
+- **`solve_with_sdp_sdr(uvw, xyz, bearing)`** - SDP with Semidefinite Relaxation
+  - Formulates as semidefinite program with SO(3) constraints
+  - Uses MOSEK solver (requires license - free for academic use)
+  - Performs rank-1 approximation via SVD for final solution
+  - More robust to noise but slower
+
+- **`ransac_solve(uvw, xyz, bearing, ...)`** - RANSAC with linear solver
+  - Robust to outliers in bearing measurements
+  - Iteratively samples minimal sets and finds best inlier set
+
+- **`ransac_solve_with_sdp_sdr(uvw, xyz, bearing, ...)`** - RANSAC with SDP solver
+  - Combines outlier robustness with SDP accuracy
+
+#### Class Methods
 
 ```python
 class bearing_linear_solver():
-    def __init__(self) -> None:
-        pass
-
     @staticmethod
-    def compute_reduced_Ab_matrix(uA: np.ndarray, vA: np.ndarray, wA: np.ndarray, phi: np.ndarray, theta: np.ndarray,
-                                k: int, xB: np.ndarray, yB: np.ndarray, zB: np.ndarray, R: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-
-    ...
-
+    def solve(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Linear solver returning (R, t)"""
+    
     @staticmethod
-    def solve(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
-
+    def solve_with_sdp_sdr(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """SDP solver returning (R, t)"""
+    
     @staticmethod
-    def solve_with_sdp_sdr(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
+    def ransac_solve(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray,
+                     num_iterations: int = 500, threshold: float = 1e-2) -> Tuple[np.ndarray, np.ndarray]:
+        """RANSAC-based linear solver for outlier rejection"""
+    
+    @staticmethod
+    def ransac_solve_with_sdp_sdr(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray,
+                                   num_iterations: int = 500, threshold: float = 1e-2) -> Tuple[np.ndarray, np.ndarray]:
+        """RANSAC-based SDP solver for outlier rejection"""
 ```
 
-### Usage
-To use the bearing-only solver, run the `bearing_only_solver.py` script with the appropriate folder and file prefix:
+#### Usage Example
 ```python
 import numpy as np
-from bearing_only_solver import bearing_linear_solver
+from bearing_only_solver import bearing_linear_solver, load_simulation_data
 
-# Example data
-p1 = np.array([[0, 0], [1, 1], [2, 2]])
-p2 = np.array([[0, 0], [1, 1], [2, 2]])
-bearing = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+# Load simulation data
+data = load_simulation_data("batch_0.txt")
+uvw = data["p1"]      # Global frame positions (3×n)
+xyz = data["p2"]      # Local frame positions (3×n)  
+bearing = data["bearing"]  # Bearing vectors (3×n)
 
-# Solve using the BGPnP algorithm
-R, T = bearing_linear_solver.solve(p1, p2, bearing)
-R, T = bearing_linear_solver.solve_with_sdp_sdr(p1, p2, bearing) # if you want to use the SDP + SDR solver.
+# Linear solver
+R, t = bearing_linear_solver.solve(uvw, xyz, bearing)
+
+# SDP solver (more accurate but slower)
+R, t = bearing_linear_solver.solve_with_sdp_sdr(uvw, xyz, bearing)
+
+# RANSAC for outlier rejection
+R, t = bearing_linear_solver.ransac_solve(uvw, xyz, bearing, 
+                                          num_iterations=500, 
+                                          threshold=1e-2)
 
 print("Rotation Matrix:", R)
-print("Translation Vector:", T)
+print("Translation Vector:", t)
 ```
 
-## `bgpnp` Class
+### `bgpnp` Class
 
-The `bgpnp` class implements the Bearing Generalized Perspective-n-Point (BGPnP) algorithm. It provides methods to solve for the rotation matrix, translation vector, and error given 2D coordinates, bearing angles, and other parameters.
+The `bgpnp` class implements the Bearing Generalized Perspective-n-Point (BGPnP) algorithm. It uses a control point representation and kernel-based optimization to solve for pose.
 
-### Class Definition
+#### Available Methods
+
+- **`solve(p1, p2, bearing, sol_iter=True)`** - Main BGPnP solver
+  - Uses control points and kernel decomposition
+  - Optional iterative refinement for improved accuracy
+  - Returns (R, t, error)
+
+- **`ransac_solve(p1, p2, bearing, ...)`** - RANSAC variant
+  - Robust to outlier measurements
+  - Samples minimal sets (6 points), finds best inliers
+  - Refits final solution on inlier set
+
+- **`solve_new_loss(p1, p2, bearing, ...)`** - Alternative loss function
+  - Experimental variant with different error metric
+
+#### Class Methods
 
 ```python
 class bgpnp:
-    def __init__(self) -> None:
-        pass
-
     @staticmethod
-    def solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
-        # Method implementation
-
+    def solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, 
+              sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Solve BGPnP problem.
+        
+        Args:
+            p1: 3D points in global frame (n×3)
+            p2: 3D points in local frame (n×3)
+            bearing: Bearing vectors (n×3)
+            sol_iter: Whether to use iterative refinement
+            
+        Returns:
+            R: Rotation matrix (3×3)
+            t: Translation vector (3,)
+            error: Reprojection error
+        """
+    
     @staticmethod
-    def define_control_points() -> np.ndarray:
-        # Method implementation
-
-    @staticmethod
-    def compute_alphas(Xw: np.ndarray, Cw: np.ndarray) -> np.ndarray:
-        # Method implementation
-
-    @staticmethod
-    def myProcrustes(X, Y):
-        # Method implementation
-
-    @staticmethod
-    def KernelPnP(Cw: np.ndarray, Km: np.ndarray, dims: int = 4, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
-        # Method implementation
-
-    @staticmethod
-    def kernel_noise(M: np.ndarray, b: np.ndarray, dimker: int = 4) -> np.ndarray:
-        # Method implementation
-
-    @staticmethod
-    def prepare_data(p: np.ndarray, bearing: np.ndarray, pb: np.ndarray, Cw: np.ndarray = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        # Method implementation
-
-    @staticmethod
-    def skew_symmetric_matrix(v: np.ndarray) -> np.ndarray:
-        # Method implementation
-
-    @staticmethod
-    def compute_Mb(bearing: np.ndarray, Alph: np.ndarray, p2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        # Method implementation
+    def ransac_solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray,
+                     num_iterations: int = 500, threshold: float = 1e-2) -> Tuple[np.ndarray, np.ndarray, float]:
+        """RANSAC-based BGPnP solver for outlier rejection"""
 ```
-### Usage Example
+#### Usage Example
 ```python
 import numpy as np
-from bearing_only_solver import bgpnp
+from bearing_only_solver import bgpnp, load_simulation_data
 
-# Example data
-p1 = np.array([[0, 0], [1, 1], [2, 2]])
-p2 = np.array([[0, 0], [1, 1], [2, 2]])
-bearing = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+# Load simulation data
+data = load_simulation_data("batch_0.txt")
+p1 = data["p1"].T  # Convert to n×3
+p2 = data["p2"].T
+bearing = data["bearing"].T
 
-# Solve using the BGPnP algorithm
-R, T, err = bgpnp.solve(p1, p2, bearing)
+# Standard BGPnP solve
+R, t, error = bgpnp.solve(p1, p2, bearing, sol_iter=True)
+
+# RANSAC for outlier rejection
+R, t, error = bgpnp.ransac_solve(p1, p2, bearing,
+                                 num_iterations=500,
+                                 threshold=1e-2)
 
 print("Rotation Matrix:", R)
-print("Translation Vector:", T)
-print("Error:", err)
+print("Translation Vector:", t)
+print("Reprojection Error:", error)
 ```
 
-### Description
-The bgpnp class provides several static methods to perform various computations required by the BGPnP algorithm:
-- solve(p1, p2, bearing, sol_iter): Computes the rotation matrix, translation vector, and error.
+## Experiments
 
+The repository includes several experimental scripts for benchmarking and testing:
 
+### `exp_tcst_data.py` - TCST Paper Benchmark
 
-## Dependencies
-- numpy
-- scipy
-- logging
-- sophuspy
-Install the dependencies using pip:
+Evaluates all solvers on data from the TCST 2021 reference paper:
+
+> N. T. Hung, F. F. C. Rego and A. M. Pascoal, "Cooperative Distributed Estimation and Control of Multiple Autonomous Vehicles for Range-Based Underwater Target Localization and Pursuit," IEEE Transactions on Control Systems Technology, 2021.
+
+**Usage:**
 ```bash
-pip install numpy scipy
+python exp_tcst_data.py --folder ../2/
 ```
 
-# experiment
-## TCST data simulation
-Call `python exp_tcst_data.py` to run benchmark experiment on the data sampled from the following reference.
-> Reference:
-> N. T. Hung, F. F. C. Rego and A. M. Pascoal,
-> "Cooperative Distributed Estimation and Control of Multiple Autonomous Vehicles for Range-Based Underwater Target Localization and Pursuit," in IEEE Transactions on Control Systems Technology, doi: 10.1109/TCST.2021.3107346.
+**Output:** Comparative plots of rotation/translation errors and execution times for BGPnP, Linear Solver, and SDP solver.
 
-## Simulation Data Processing
-This project contains scripts to process and save simulation data. The main functionalities include loading, processing, and saving simulation data in a specific format.
+### `exp_random_data.py` - Synthetic Data Benchmark
 
-### Files
-- `load_data.py`: Contains functions to load and save simulation data.
-### Functions
-`save_simulation_data(simulation_data, folder: str, file: str)`
+Generates random test cases with configurable noise levels and evaluates solver performance.
 
-This function saves the simulation data to text files.
+**Features:**
+- Configurable batch size (number of landmarks)
+- Adjustable bearing noise (standard deviation in degrees)
+- Generates ground truth poses and noisy bearing measurements
 
-- Parameters:
-    - simulation_data: List of dictionaries containing simulation data.
-    - folder: The folder where the files will be saved.
-    - file: The base name of the files.
+**Usage:**
+```bash
+# Generate data
+python exp_random_data.py --generate --batch_size 6 --folder ../3/ --std_noise 2.0
 
-- Functionality:
-    - Iterates through the simulation_data.
-    - For each data entry, it creates a text file.
-    - Writes p1, p2, bearing, Rgt, and tgt data to the file.
-    - Each element of Rgt and tgt is written one by one to ensure no extra brackets are included.
+# Run benchmark
+python exp_random_data.py --folder ../3/
+```
 
-`gen_simulation_data_dtu()`
+### `exp_outlier_test.py` - Outlier Robustness Testing
 
-This function generates simulation data for DTU.
+Tests RANSAC variants against varying outlier ratios.
 
-- Functionality:
-    - Prepares data for two agents (agent_a and agent_b) using the prepare_data function.
-    - Logs the length of agent_a.
+**Features:**
+- Configurable outlier percentage (default: 20%)
+- Compares standard vs RANSAC solvers
+- Evaluates degradation with increasing outliers
 
-### Usage
-1. Ensure you have the necessary data files in the specified folder.
-2. Call the save_simulation_data function with the appropriate parameters to save the data.
-3. Use the gen_simulation_data_dtu function to generate and prepare simulation data for DTU.
+**Usage:**
+```bash
+# Generate data with 20% outliers
+python exp_outlier_test.py --generate --ratio 0.2 --folder ../5/
 
-### Example
+# Run benchmark
+python exp_outlier_test.py --folder ../5/
+```
+
+### `exp_real_data.py` - Real UAV Flight Data
+
+Processes actual IMU/GPS data from UAV experiments (DTU and TAES datasets).
+
+**Features:**
+- Loads MATLAB format sensor data
+- Converts GPS/IMU to relative poses
+- Tests bearing-only localization on real measurements
+
+**Usage:**
+```bash
+python exp_real_data.py
+```
+
+## Data Format
+
+Simulation data files store one test case per file with the following format:
+
+```
+<p1 values as space-separated floats (3n values for n points)>
+<p2 values as space-separated floats (3n values)>
+<bearing values as space-separated floats (3n values)>
+<Rgt values as space-separated floats (9 values, row-major 3×3)>
+<tgt values as space-separated floats (3 values)>
+```
+
+Load using:
 ```python
-from load_data import save_simulation_data, gen_simulation_data_dtu
-
-# Example usage of save_simulation_data
-simulation_data = [
-    {
-        "p1": np.array([[1, 2], [3, 4]]),
-        "p2": np.array([[5, 6], [7, 8]]),
-        "bearing": np.array([[9, 10], [11, 12]]),
-        "Rgt": np.array([[13, 14], [15, 16]]),
-        "tgt": np.array([[17, 18], [19, 20]])
-    }
-]
-save_simulation_data(simulation_data, './data/', 'simulation_')
-
-# Example usage of gen_simulation_data_dtu
-gen_simulation_data_dtu()
+from bearing_only_solver import load_simulation_data
+data = load_simulation_data("batch_0.txt")
+# Returns dict with keys: p1, p2, bearing, Rgt, tgt
 ```
 
-# Requirements
-- Python 3.x
-- NumPy
-- cvxpy
+## Installation
 
-# License
+### Requirements
+
+**Core Dependencies:**
+- Python 3.x
+- NumPy - Array operations
+- SciPy - Linear algebra and optimization
+- cvxpy - Convex optimization framework
+
+**Optional Dependencies:**
+- sophuspy - Lie group operations (for SO(3) sampling in experiments)
+- matplotlib - Plotting and visualization
+- seaborn - Statistical plotting
+- pandas - Data analysis
+
+### Install
+
+```bash
+# Install core dependencies
+pip install -r requirements.txt
+
+# Or install manually
+pip install numpy scipy cvxpy
+
+# Optional: for experiments and visualization
+pip install sophuspy matplotlib seaborn pandas
+```
+
+### MOSEK License (Required for SDP Solver)
+
+The SDP solver uses MOSEK, which requires a license:
+1. **Academic users**: Get a free academic license at https://www.mosek.com/products/academic-licenses/
+2. **Personal/hobby use**: Free personal academic license available
+3. Follow MOSEK installation instructions to install the license file
+
+Without MOSEK, you can still use:
+- `bearing_linear_solver.solve()` (linear solver)
+- `bgpnp.solve()` and `bgpnp.ransac_solve()` (BGPnP algorithms)
+
+## Quick Start
+
+```python
+from bearing_only_solver import bearing_linear_solver, bgpnp, load_simulation_data
+import numpy as np
+
+# Load test data
+data = load_simulation_data("taes/simu_0.txt")
+
+# Method 1: Linear solver (fastest)
+R, t = bearing_linear_solver.solve(data["p1"], data["p2"], data["bearing"])
+
+# Method 2: BGPnP (good accuracy)
+R, t, err = bgpnp.solve(data["p1"].T, data["p2"].T, data["bearing"].T)
+
+# Method 3: SDP solver (best accuracy, requires MOSEK)
+R, t = bearing_linear_solver.solve_with_sdp_sdr(data["p1"], data["p2"], data["bearing"])
+
+# With outliers: use RANSAC
+R, t = bearing_linear_solver.ransac_solve(data["p1"], data["p2"], data["bearing"])
+R, t, err = bgpnp.ransac_solve(data["p1"].T, data["p2"].T, data["bearing"].T)
+```
+
+## Algorithm Comparison
+
+| Algorithm | Speed | Accuracy | Outlier Robust | License Required |
+|-----------|-------|----------|----------------|------------------|
+| Linear Solver | ⚡⚡⚡ Fast | ⭐⭐ Good | ❌ No | No |
+| BGPnP | ⚡⚡ Medium | ⭐⭐⭐ Better | ❌ No | No |
+| SDP + SDR | ⚡ Slow | ⭐⭐⭐⭐ Best | ❌ No | MOSEK |
+| RANSAC + Linear | ⚡⚡ Medium | ⭐⭐ Good | ✅ Yes | No |
+| RANSAC + BGPnP | ⚡ Slower | ⭐⭐⭐ Better | ✅ Yes | No |
+| RANSAC + SDP | 🐌 Slowest | ⭐⭐⭐⭐ Best | ✅ Yes | MOSEK |
+
+**Recommendations:**
+- **Real-time applications**: Use `bearing_linear_solver.solve()` or `bgpnp.solve()`
+- **High accuracy needed**: Use `bearing_linear_solver.solve_with_sdp_sdr()` (if MOSEK available)
+- **Outlier-prone data**: Use any RANSAC variant
+
+## Project Structure
+
+```
+.
+├── readme.md              # This file
+├── requirements.txt       # Python dependencies
+├── src/
+│   ├── bearing_only_solver.py          # Main algorithms
+│   ├── bearing_only_solver_3andmore.py # Extended solver variants
+│   ├── exp_tcst_data.py                # TCST benchmark
+│   ├── exp_random_data.py              # Synthetic data benchmark
+│   ├── exp_outlier_test.py             # Outlier robustness test
+│   ├── exp_real_data.py                # Real UAV data processing
+│   ├── load_data.py                    # Data loading utilities
+│   ├── test_bgpnp.py                   # BGPnP unit tests
+│   └── test_load_data.py               # Data loading tests
+└── taes/
+    └── simu_0.txt         # Example simulation data
+```
+
+## References
+
+[1] JS Russell, M Ye, BDO Anderson, H Hmam, P Sarunic. "Cooperative Localisation of a GPS-Denied UAV using Direction-of-Arrival Measurements." IEEE Transactions on Aerospace and Electronic Systems, 2019.
+
+[2] N. T. Hung, F. F. C. Rego, A. M. Pascoal. "Cooperative Distributed Estimation and Control of Multiple Autonomous Vehicles for Range-Based Underwater Target Localization and Pursuit." IEEE Transactions on Control Systems Technology, 2021.
+
+## License
+
 This project is licensed under the MIT License.
 
-# Contributing
+## Contributing
+
 Contributions are welcome! Please submit a pull request or open an issue to discuss your ideas.
