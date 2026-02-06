@@ -139,8 +139,9 @@ def parse_csv_data(file_path):
     try:
         with open(file_path, 'r') as f:
             lines = f.readlines()
+    except FileNotFoundError:
+        return []
     
-    # Missing except or finally block - this is the syntax error!
     column_map = {
         'id': 0,
         'name': 1,
