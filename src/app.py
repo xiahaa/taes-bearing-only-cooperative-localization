@@ -2,7 +2,7 @@
 Main application module.
 """
 
-from data_processor import process_data, parse_csv_data
+from src.data_processor import process_data, parse_csv_data
 
 
 def main():
