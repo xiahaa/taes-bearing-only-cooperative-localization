@@ -291,7 +291,7 @@ class bearing_linear_solver():
             # Compute the error - vectorized version
             vec = R @ uvw + t[:, None] - xyz
             vec_norm = np.linalg.norm(vec, axis=0, keepdims=True)
-            bearing_recomputed = vec / vec_norm
+            bearing_recomputed = vec / (vec_norm + 1e-10)
 
             bearing_angle_est = to_bearing_angle(bearing_recomputed)
             bearing_angle_in = to_bearing_angle(bearing)
@@ -355,7 +355,7 @@ class bearing_linear_solver():
             # Compute the error - vectorized version
             vec = R @ uvw + t[:, None] - xyz
             vec_norm = np.linalg.norm(vec, axis=0, keepdims=True)
-            bearing_recomputed = vec / vec_norm
+            bearing_recomputed = vec / (vec_norm + 1e-10)
 
             bearing_angle_est = to_bearing_angle(bearing_recomputed)
             bearing_angle_in = to_bearing_angle(bearing)
@@ -676,7 +676,7 @@ class bgpnp():
             # compute the error - vectorized version
             vec = R @ p1.T + t[:, None] - p2.T
             vec_norm = np.linalg.norm(vec, axis=0, keepdims=True)
-            bearing_recomputed = (vec / vec_norm).T
+            bearing_recomputed = (vec / (vec_norm + 1e-10)).T
 
             bearing_angle_est = to_bearing_angle(bearing_recomputed)
             bearing_angle_in  = to_bearing_angle(bearing)
@@ -1082,7 +1082,7 @@ class bgpnp():
         b = np.zeros(3 * n)
 
         # Compute skew-symmetric matrices for all bearings
-        S = np.array([bgpnp.skew_symmetric_matrix(bearing_vec) for bearing_vec in bearing])
+        S = np.array([bgpnp.skew_symmetric_matrix(bearing_i) for bearing_i in bearing])
 
         # Vectorized computation of M
         M = np.einsum('ijk,ikl->ijl', S, M.reshape(n, 3, 12)).reshape(3 * n, 12)
