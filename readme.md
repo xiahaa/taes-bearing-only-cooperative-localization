@@ -237,11 +237,26 @@ Simulation data files store one test case per file with the following format:
 <tgt values as space-separated floats (3 values)>
 ```
 
+**Example with 2 points:**
+```
+1.0 2.0 3.0 4.0 5.0 6.0
+7.0 8.0 9.0 10.0 11.0 12.0
+0.707 0.707 0.0 0.577 0.577 0.577
+0.866 -0.5 0.0 0.5 0.866 0.0 0.0 0.0 1.0
+1.5 2.5 3.5
+```
+Line 1: p1 = [[1,2,3], [4,5,6]]^T (2 points in global frame)  
+Line 2: p2 = [[7,8,9], [10,11,12]]^T (2 points in local frame)  
+Line 3: bearing = [[0.707,0.707,0], [0.577,0.577,0.577]]^T (2 bearing vectors)  
+Line 4: 3×3 rotation matrix Rgt (row-major order)  
+Line 5: 3D translation vector tgt
+
 Load using:
 ```python
 from bearing_only_solver import load_simulation_data
 data = load_simulation_data("batch_0.txt")
 # Returns dict with keys: p1, p2, bearing, Rgt, tgt
+# Note: p1, p2, bearing are returned as 3×n arrays (transposed)
 ```
 
 ## Installation
@@ -312,12 +327,12 @@ data = load_simulation_data("taes/simu_0.txt")
 
 | Algorithm | Speed | Accuracy | Outlier Robust | License Required |
 |-----------|-------|----------|----------------|------------------|
-| Linear Solver | ⚡⚡⚡ Fast | ⭐⭐ Good | ❌ No | No |
-| BGPnP | ⚡⚡ Medium | ⭐⭐⭐ Better | ❌ No | No |
-| SDP + SDR | ⚡ Slow | ⭐⭐⭐⭐ Best | ❌ No | MOSEK |
-| RANSAC + Linear | ⚡⚡ Medium | ⭐⭐ Good | ✅ Yes | No |
-| RANSAC + BGPnP | ⚡ Slower | ⭐⭐⭐ Better | ✅ Yes | No |
-| RANSAC + SDP | 🐌 Slowest | ⭐⭐⭐⭐ Best | ✅ Yes | MOSEK |
+| Linear Solver | Fast | Good | No | No |
+| BGPnP | Medium | Better | No | No |
+| SDP + SDR | Slow | Best | No | MOSEK |
+| RANSAC + Linear | Medium | Good | Yes | No |
+| RANSAC + BGPnP | Slow | Better | Yes | No |
+| RANSAC + SDP | Very Slow | Best | Yes | MOSEK |
 
 **Recommendations:**
 - **Real-time applications**: Use `bearing_linear_solver.solve()` or `bgpnp.solve()`
