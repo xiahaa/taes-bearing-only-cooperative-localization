@@ -310,7 +310,7 @@ class bearing_linear_solver():
                 best_inliers = inliers
 
         # Refine the solution using all inliers
-        if best_inliers is None:
+        if best_inliers is not None:
             uvw_inliers = uvw[:, best_inliers]
             xyz_inliers = xyz[:, best_inliers]
             bearing_inliers = bearing[:, best_inliers]
@@ -376,7 +376,7 @@ class bearing_linear_solver():
                 best_t = t
                 best_inliers = inliers
 
-        if best_inliers is None:
+        if best_inliers is not None:
             # Refine the solution using all inliers
             uvw_inliers = uvw[:, best_inliers]
             xyz_inliers = xyz[:, best_inliers]
@@ -860,6 +860,7 @@ class bgpnp():
 
         return R, b, mc
 
+    @staticmethod
     def KernelPnP(Cw: np.ndarray, Km: np.ndarray, dims: int = 4, sol_iter: bool = True, tol = 1e-6) -> Tuple[np.ndarray, np.ndarray, float]:
         """
         Computes the Kernel Perspective-n-Point (KernelPnP) algorithm.
@@ -1048,25 +1049,12 @@ class bgpnp():
                 - M (np.ndarray): The M matrix of shape (3n, 12).
                 - b (np.ndarray): The b vector of shape (3n,).
         """
-        # M = bgpnp.kron_A_N(Alph, 3) #np.zeros((3 * bearing.shape[0], 12))
-        # b = np.zeros(3 * bearing.shape[0])
-        # logger.debug(M.shape)
-        # for i in range(bearing.shape[0]):
-        #     S = bgpnp.skew_symmetric_matrix(bearing[i])
-        #     logger.debug(f'bearing: {bearing[i]}')
-        #     logger.debug(f'S: {S}')
-        #     logger.debug(f'Alph: {Alph[i]}')
-
-        #     M[3 * i:3 * i + 3, :] =  S @ M[3 * i:3 * i + 3, :] #np.kron(Alph[i], S)
-        #     b[3 * i:3 * i + 3] = S.dot(p2[i])
-
-        # return M, b
         n = bearing.shape[0]
         M = bgpnp.kron_A_N(Alph, 3)
         b = np.zeros(3 * n)
 
         # Compute skew-symmetric matrices for all bearings
-        S = np.array([bgpnp.skew_symmetric_matrix(b) for b in bearing])
+        S = np.array([bgpnp.skew_symmetric_matrix(bearing_vec) for bearing_vec in bearing])
 
         # Vectorized computation of M
         M = np.einsum('ijk,ikl->ijl', S, M.reshape(n, 3, 12)).reshape(3 * n, 12)

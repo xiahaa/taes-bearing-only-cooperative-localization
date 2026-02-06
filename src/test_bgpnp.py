@@ -113,7 +113,7 @@ class TestBGPNP(unittest.TestCase):
         self.assertTrue(np.allclose(t, t_exp, atol=1e-8))
 
     # Test case 2
-    def test_bgpnp(self):
+    def test_bgpnp_simulation_data(self):
         from bearing_only_solver import bgpnp, bearing_linear_solver, load_simulation_data
         import numpy as np
         import os
