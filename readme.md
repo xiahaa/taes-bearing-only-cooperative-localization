@@ -33,25 +33,27 @@ The `bearing_linear_solver` class implements linear and semidefinite programming
 
 #### Class Methods
 
+**Note:** All methods are decorated with `@timeit` which returns `((result), elapsed_time)` tuples.
+
 ```python
 class bearing_linear_solver():
     @staticmethod
     def solve(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Linear solver returning (R, t)"""
+        """Linear solver returning ((R, t), time)"""
     
     @staticmethod
     def solve_with_sdp_sdr(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """SDP solver returning (R, t)"""
+        """SDP solver returning ((R, t), time)"""
     
     @staticmethod
     def ransac_solve(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray,
                      num_iterations: int = 500, threshold: float = 1e-2) -> Tuple[np.ndarray, np.ndarray]:
-        """RANSAC-based linear solver for outlier rejection"""
+        """RANSAC-based linear solver for outlier rejection, returning ((R, t), time)"""
     
     @staticmethod
     def ransac_solve_with_sdp_sdr(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray,
                                    num_iterations: int = 500, threshold: float = 1e-2) -> Tuple[np.ndarray, np.ndarray]:
-        """RANSAC-based SDP solver for outlier rejection"""
+        """RANSAC-based SDP solver for outlier rejection, returning ((R, t), time)"""
 ```
 
 #### Usage Example
@@ -65,19 +67,20 @@ uvw = data["p1"]      # Global frame positions (3×n)
 xyz = data["p2"]      # Local frame positions (3×n)  
 bearing = data["bearing"]  # Bearing vectors (3×n)
 
-# Linear solver
-R, t = bearing_linear_solver.solve(uvw, xyz, bearing)
+# Linear solver (returns ((R, t), elapsed_time) due to @timeit decorator)
+(R, t), time = bearing_linear_solver.solve(uvw, xyz, bearing)
 
 # SDP solver (more accurate but slower)
-R, t = bearing_linear_solver.solve_with_sdp_sdr(uvw, xyz, bearing)
+(R, t), time = bearing_linear_solver.solve_with_sdp_sdr(uvw, xyz, bearing)
 
 # RANSAC for outlier rejection
-R, t = bearing_linear_solver.ransac_solve(uvw, xyz, bearing, 
-                                          num_iterations=500, 
-                                          threshold=1e-2)
+(R, t), time = bearing_linear_solver.ransac_solve(uvw, xyz, bearing, 
+                                                   num_iterations=500, 
+                                                   threshold=1e-2)
 
 print("Rotation Matrix:", R)
 print("Translation Vector:", t)
+print("Elapsed Time:", time, "seconds")
 ```
 
 ### `bgpnp` Class
@@ -101,6 +104,8 @@ The `bgpnp` class implements the Bearing Generalized Perspective-n-Point (BGPnP)
 
 #### Class Methods
 
+**Note:** All methods are decorated with `@timeit` which returns `((result), elapsed_time)` tuples.
+
 ```python
 class bgpnp:
     @staticmethod
@@ -116,15 +121,17 @@ class bgpnp:
             sol_iter: Whether to use iterative refinement
             
         Returns:
-            R: Rotation matrix (3×3)
-            t: Translation vector (3,)
-            error: Reprojection error
+            ((R, t, error), elapsed_time) where:
+                R: Rotation matrix (3×3)
+                t: Translation vector (3,)
+                error: Reprojection error
+                elapsed_time: Computation time in seconds
         """
     
     @staticmethod
     def ransac_solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray,
                      num_iterations: int = 500, threshold: float = 1e-2) -> Tuple[np.ndarray, np.ndarray, float]:
-        """RANSAC-based BGPnP solver for outlier rejection"""
+        """RANSAC-based BGPnP solver for outlier rejection, returning ((R, t, error), time)"""
 ```
 #### Usage Example
 ```python
@@ -137,17 +144,18 @@ p1 = data["p1"].T  # Convert to n×3
 p2 = data["p2"].T
 bearing = data["bearing"].T
 
-# Standard BGPnP solve
-R, t, error = bgpnp.solve(p1, p2, bearing, sol_iter=True)
+# Standard BGPnP solve (returns ((R, t, error), elapsed_time) due to @timeit decorator)
+(R, t, error), time = bgpnp.solve(p1, p2, bearing, sol_iter=True)
 
 # RANSAC for outlier rejection
-R, t, error = bgpnp.ransac_solve(p1, p2, bearing,
-                                 num_iterations=500,
-                                 threshold=1e-2)
+(R, t, error), time = bgpnp.ransac_solve(p1, p2, bearing,
+                                         num_iterations=500,
+                                         threshold=1e-2)
 
 print("Rotation Matrix:", R)
 print("Translation Vector:", t)
 print("Reprojection Error:", error)
+print("Elapsed Time:", time, "seconds")
 ```
 
 ## Experiments
@@ -286,17 +294,18 @@ import numpy as np
 data = load_simulation_data("taes/simu_0.txt")
 
 # Method 1: Linear solver (fastest)
-R, t = bearing_linear_solver.solve(data["p1"], data["p2"], data["bearing"])
+# Note: Methods decorated with @timeit return ((result), elapsed_time)
+(R, t), time = bearing_linear_solver.solve(data["p1"], data["p2"], data["bearing"])
 
 # Method 2: BGPnP (good accuracy)
-R, t, err = bgpnp.solve(data["p1"].T, data["p2"].T, data["bearing"].T)
+(R, t, err), time = bgpnp.solve(data["p1"].T, data["p2"].T, data["bearing"].T)
 
 # Method 3: SDP solver (best accuracy, requires MOSEK)
-R, t = bearing_linear_solver.solve_with_sdp_sdr(data["p1"], data["p2"], data["bearing"])
+(R, t), time = bearing_linear_solver.solve_with_sdp_sdr(data["p1"], data["p2"], data["bearing"])
 
 # With outliers: use RANSAC
-R, t = bearing_linear_solver.ransac_solve(data["p1"], data["p2"], data["bearing"])
-R, t, err = bgpnp.ransac_solve(data["p1"].T, data["p2"].T, data["bearing"].T)
+(R, t), time = bearing_linear_solver.ransac_solve(data["p1"], data["p2"], data["bearing"])
+(R, t, err), time = bgpnp.ransac_solve(data["p1"].T, data["p2"].T, data["bearing"].T)
 ```
 
 ## Algorithm Comparison
