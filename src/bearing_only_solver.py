@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import logging
-from math import sin, cos, tan, asin, acos, atan2, fabs, sqrt
+from math import sin, cos, asin, acos, atan2
 from typing import Optional, Tuple
 import cvxpy as cp
 import time
@@ -288,12 +288,10 @@ class bearing_linear_solver():
             # Solve the bearing-only problem
             (R, t), time = bearing_linear_solver.solve(uvw_sample, xyz_sample, bearing_sample)
 
-            # Compute the error
-            bearing_recomputed = np.zeros_like(bearing)
-            for j in range(uvw.shape[1]):
-                vec = R.dot(uvw[:, j]) + t - xyz[:, j]
-                vec = vec / np.linalg.norm(vec)
-                bearing_recomputed[:, j] = vec
+            # Compute the error - vectorized version
+            vec = R @ uvw + t[:, None] - xyz
+            vec_norm = np.linalg.norm(vec, axis=0, keepdims=True)
+            bearing_recomputed = vec / vec_norm
 
             bearing_angle_est = to_bearing_angle(bearing_recomputed)
             bearing_angle_in = to_bearing_angle(bearing)
@@ -354,12 +352,10 @@ class bearing_linear_solver():
             # Solve the bearing-only problem
             (R, t), time = bearing_linear_solver.solve_with_sdp_sdr(uvw_sample, xyz_sample, bearing_sample)
 
-            # Compute the error
-            bearing_recomputed = np.zeros_like(bearing)
-            for j in range(uvw.shape[1]):
-                vec = R.dot(uvw[:, j]) + t - xyz[:, j]
-                vec = vec / np.linalg.norm(vec)
-                bearing_recomputed[:, j] = vec
+            # Compute the error - vectorized version
+            vec = R @ uvw + t[:, None] - xyz
+            vec_norm = np.linalg.norm(vec, axis=0, keepdims=True)
+            bearing_recomputed = vec / vec_norm
 
             bearing_angle_est = to_bearing_angle(bearing_recomputed)
             bearing_angle_in = to_bearing_angle(bearing)
@@ -619,9 +615,48 @@ class bgpnp():
         pass
 
     @staticmethod
+    def validate_inputs(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, min_points: int = 4) -> None:
+        """
+        Validate input data for BGPnP algorithm.
+        
+        Args:
+            p1 (np.ndarray): The 3D coordinates of the points in global frame.
+            p2 (np.ndarray): The 3D coordinates of the points in local frame.
+            bearing (np.ndarray): The bearing vectors.
+            min_points (int): Minimum number of points required.
+            
+        Raises:
+            ValueError: If inputs are invalid.
+        """
+        if p1.shape[0] < min_points:
+            raise ValueError(f"Insufficient points: need at least {min_points}, got {p1.shape[0]}")
+        
+        if p1.shape != p2.shape or p1.shape != bearing.shape:
+            raise ValueError(f"Shape mismatch: p1={p1.shape}, p2={p2.shape}, bearing={bearing.shape}")
+        
+        if p1.shape[1] != 3:
+            raise ValueError(f"Expected 3D points (n, 3), got shape {p1.shape}")
+        
+        # Check for NaN or Inf values
+        if np.any(np.isnan(p1)) or np.any(np.isinf(p1)):
+            raise ValueError("p1 contains NaN or Inf values")
+        if np.any(np.isnan(p2)) or np.any(np.isinf(p2)):
+            raise ValueError("p2 contains NaN or Inf values")
+        if np.any(np.isnan(bearing)) or np.any(np.isinf(bearing)):
+            raise ValueError("bearing contains NaN or Inf values")
+        
+        # Check that bearing vectors are non-zero
+        bearing_norms = np.linalg.norm(bearing, axis=1)
+        if np.any(bearing_norms < 1e-10):
+            raise ValueError("bearing contains zero or near-zero vectors")
+
+    @staticmethod
     @timeit
     def ransac_solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray,
                         num_iterations: int = 500, threshold: float = 1e-2) -> Tuple[np.ndarray, np.ndarray, float]:
+        # Validate inputs
+        bgpnp.validate_inputs(p1, p2, bearing, min_points=6)
+        
         # Initialize the best error to a large value
         best_error = -np.inf
         best_R = None
@@ -638,12 +673,10 @@ class bgpnp():
             # Solve the BGPnP problem
             (R, t, error), time = bgpnp.solve(p1_sample, p2_sample, bearing_sample, sol_iter=False)
 
-            # compute the error, nx3, nx3, nx3
-            bearing_recomputed = np.zeros_like(bearing)
-            for j in range(p1.shape[0]):
-                vec = R.dot(p1[j,:])+t - p2[j,:]
-                vec = vec/np.linalg.norm(vec)
-                bearing_recomputed[j,:] = vec
+            # compute the error - vectorized version
+            vec = R @ p1.T + t[:, None] - p2.T
+            vec_norm = np.linalg.norm(vec, axis=0, keepdims=True)
+            bearing_recomputed = (vec / vec_norm).T
 
             bearing_angle_est = to_bearing_angle(bearing_recomputed)
             bearing_angle_in  = to_bearing_angle(bearing)
@@ -653,7 +686,6 @@ class bgpnp():
             num_inlier = (error < threshold).sum()
             inliers = np.where(error < threshold)[0]
             # logger.warning(f'Error: {error}, Num inlier: {num_inlier}')
-            # logger.warning(f'i: {i}')
 
             # Check if the error is less than the threshold
             if num_inlier > best_error:
@@ -662,18 +694,15 @@ class bgpnp():
                 best_t = t
                 best_inliers = inliers
 
-        # refit the model using the inliers
-        # logger.info(f'Best inliers: {best_inliers}')
-        # logger.info(f'Best error: {best_error}')
-        p1_sample = p1[best_inliers]
-        p2_sample = p2[best_inliers]
-        bearing_sample = bearing[best_inliers]
-        # logger.info(f'p1_sample: {p1_sample.shape}')
-        # logger.info(f'p2_sample: {p2_sample.shape}')
-        # logger.info(f'bearing_sample: {bearing_sample.shape}')
-        (R, t, error), time = bgpnp.solve(p1_sample, p2_sample, bearing_sample, sol_iter=True)
-
-        return R, t, error
+        # Refit the model using the inliers
+        if best_inliers is not None and len(best_inliers) >= 6:
+            p1_sample = p1[best_inliers]
+            p2_sample = p2[best_inliers]
+            bearing_sample = bearing[best_inliers]
+            (R, t, error), time = bgpnp.solve(p1_sample, p2_sample, bearing_sample, sol_iter=True)
+            return R, t, error
+        else:
+            return best_R, best_t, 0.0
 
     @staticmethod
     def refine(p2: np.ndarray, bearing: np.ndarray,
@@ -724,6 +753,9 @@ class bgpnp():
     @staticmethod
     @timeit
     def solve_new_loss(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
+        # Validate inputs
+        bgpnp.validate_inputs(p1, p2, bearing, min_points=4)
+        
         M, b, Alph, Cw = bgpnp.prepare_data_new_loss(p1, bearing, p2)
         possible_dims = 6
         Km = bgpnp.kernel_noise(M, b, dimker=possible_dims)
@@ -747,17 +779,13 @@ class bgpnp():
         Returns:
             tuple: A tuple containing the rotation matrix (R), translation vector (T), and error (err).
         """
+        # Validate inputs
+        bgpnp.validate_inputs(p1, p2, bearing, min_points=4)
+        
         M, b, Alph, Cw = bgpnp.prepare_data(p1, bearing, p2)
         possible_dims = 4
         Km = bgpnp.kernel_noise(M, b, dimker=possible_dims)
         R, t, err, _ = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=sol_iter)
-
-        # Rr, tr = bgpnp.refine(p2, bearing, Alph, ctl_pts, Cw)
-
-        # logger.info(f'Initial R: {R}')
-        # logger.info(f'Initial t: {t}')
-        # logger.info(f'refined R: {Rr}')
-        # logger.info(f'refined t: {tr}')
 
         return R, t, err
 
