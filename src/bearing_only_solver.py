@@ -270,7 +270,7 @@ class bearing_linear_solver():
     def solve_with_regularization(A: np.ndarray, b: np.ndarray, regularization: float = None) -> np.ndarray:
         """
         Solve Ax = b with Tikhonov regularization to improve robustness under ill-conditioned scenarios.
-        Uses ridge regression: solve (A^T A + λI)x = A^T b
+        Uses SVD-based approach for numerical stability.
 
         Parameters:
         - A (np.ndarray): Coefficient matrix, shape (m, n)
@@ -280,7 +280,7 @@ class bearing_linear_solver():
         Returns:
         - x (np.ndarray): Solution vector, shape (n,)
         """
-        # Compute SVD for adaptive regularization
+        # Compute SVD: A = U S V^T
         U, S, Vt = np.linalg.svd(A, full_matrices=False)
         
         if regularization is None:
@@ -293,15 +293,15 @@ class bearing_linear_solver():
             else:
                 regularization = 1e-6
         
-        # Apply Tikhonov regularization using normal equations
-        # (A^T A + λI)x = A^T b
-        AtA = A.T @ A
-        Atb = A.T @ b
-        n = AtA.shape[0]
-        AtA_regularized = AtA + regularization * np.eye(n)
+        # Apply Tikhonov regularization using SVD
+        # Solution: x = V (S^T S + λI)^{-1} S^T U^T b
+        # Which simplifies to: x = V D U^T b, where D_ii = S_i / (S_i^2 + λ)
         
-        # Solve the regularized system
-        x = np.linalg.solve(AtA_regularized, Atb)
+        # Compute regularized diagonal matrix
+        D = S / (S**2 + regularization)
+        
+        # Compute solution: x = V D U^T b
+        x = Vt.T @ (D * (U.T @ b))
         
         return x
 
