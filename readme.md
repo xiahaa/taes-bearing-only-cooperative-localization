@@ -13,10 +13,11 @@ The `bearing_linear_solver` class implements linear and semidefinite programming
 
 #### Available Methods
 
-- **`solve(uvw, xyz, bearing)`** - Linear least-squares solver
+- **`solve(uvw, xyz, bearing)`** - Linear least-squares solver with automatic regularization
   - Constructs measurement matrix from bearing constraints
-  - Solves using standard least-squares
-  - Fast but may be less accurate with noise
+  - Automatically detects ill-conditioned matrices (condition number > 1e10)
+  - Applies Tikhonov regularization when needed to improve robustness
+  - Fast and numerically stable even with poorly distributed bearing vectors
 
 - **`solve_with_sdp_sdr(uvw, xyz, bearing)`** - SDP with Semidefinite Relaxation
   - Formulates as semidefinite program with SO(3) constraints
@@ -323,21 +324,68 @@ data = load_simulation_data("taes/simu_0.txt")
 (R, t, err), time = bgpnp.ransac_solve(data["p1"].T, data["p2"].T, data["bearing"].T)
 ```
 
+## Numerical Robustness for Ill-Conditioned Scenarios
+
+The performance of the linear solver depends on the distribution of bearing vectors. When bearing vectors are poorly distributed (e.g., nearly parallel or concentrated in similar directions), the action matrix A becomes ill-conditioned, which can lead to numerical instability and inaccurate results.
+
+### Automatic Regularization
+
+The `solve()` method now includes automatic detection and handling of ill-conditioned matrices:
+
+1. **Condition Number Monitoring**: The solver computes the condition number of the A matrix
+2. **Automatic Regularization**: When the condition number exceeds 1e10, Tikhonov (ridge) regularization is automatically applied
+3. **Adaptive Parameter Selection**: The regularization parameter is computed adaptively based on the singular values of A
+
+### Understanding Condition Number
+
+The condition number measures how sensitive the solution is to small perturbations in the input:
+- **Well-conditioned**: cond(A) ≈ 1 to 1e3 - stable, accurate solutions
+- **Moderately ill-conditioned**: cond(A) ≈ 1e3 to 1e10 - may have some numerical errors
+- **Severely ill-conditioned**: cond(A) > 1e10 - regularization applied automatically
+
+### When Does Ill-Conditioning Occur?
+
+Ill-conditioning typically occurs when:
+- Bearing vectors are nearly parallel (pointing in similar directions)
+- Bearing vectors are concentrated in a small angular region
+- Insufficient diversity in bearing directions relative to the geometry
+
+### Manual Control (Advanced Users)
+
+For advanced users who want explicit control over regularization:
+
+```python
+from bearing_only_solver import bearing_linear_solver
+import numpy as np
+
+# Compute condition number manually
+A = bearing_linear_solver.compute_A_matrix(uvw[0,:], uvw[1,:], uvw[2,:], 
+                                           phi, theta, n_points)
+cond_num = bearing_linear_solver.compute_condition_number(A)
+print(f"Condition number: {cond_num:.2e}")
+
+# Apply regularization with custom parameter
+b = bearing_linear_solver.compute_b_vector(xyz[0,:], xyz[1,:], xyz[2,:], 
+                                           phi, theta, n_points)
+x = bearing_linear_solver.solve_with_regularization(A, b, regularization=0.001)
+```
+
 ## Algorithm Comparison
 
-| Algorithm | Speed | Accuracy | Outlier Robust | License Required |
-|-----------|-------|----------|----------------|------------------|
-| Linear Solver | Fast | Good | No | No |
-| BGPnP | Medium | Better | No | No |
-| SDP + SDR | Slow | Best | No | MOSEK |
-| RANSAC + Linear | Medium | Good | Yes | No |
-| RANSAC + BGPnP | Slow | Better | Yes | No |
-| RANSAC + SDP | Very Slow | Best | Yes | MOSEK |
+| Algorithm | Speed | Accuracy | Outlier Robust | License Required | Ill-Conditioning Robust |
+|-----------|-------|----------|----------------|------------------|------------------------|
+| Linear Solver | Fast | Good | No | No | Yes (auto-regularization) |
+| BGPnP | Medium | Better | No | No | Moderate |
+| SDP + SDR | Slow | Best | No | MOSEK | Yes |
+| RANSAC + Linear | Medium | Good | Yes | No | Yes |
+| RANSAC + BGPnP | Slow | Better | Yes | No | Moderate |
+| RANSAC + SDP | Very Slow | Best | Yes | MOSEK | Yes |
 
 **Recommendations:**
 - **Real-time applications**: Use `bearing_linear_solver.solve()` or `bgpnp.solve()`
 - **High accuracy needed**: Use `bearing_linear_solver.solve_with_sdp_sdr()` (if MOSEK available)
 - **Outlier-prone data**: Use any RANSAC variant
+- **Ill-conditioned bearing distributions**: The linear solver now handles this automatically
 
 ## Project Structure
 
