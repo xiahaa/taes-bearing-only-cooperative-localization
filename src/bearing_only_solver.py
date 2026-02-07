@@ -254,6 +254,58 @@ class bearing_linear_solver():
         return Ropt
 
     @staticmethod
+    def compute_condition_number(A: np.ndarray) -> float:
+        """
+        Compute the condition number of a matrix.
+
+        Parameters:
+        - A (np.ndarray): Input matrix
+
+        Returns:
+        - float: Condition number of the matrix
+        """
+        return np.linalg.cond(A)
+
+    @staticmethod
+    def solve_with_regularization(A: np.ndarray, b: np.ndarray, regularization: float = None) -> np.ndarray:
+        """
+        Solve Ax = b with Tikhonov regularization to improve robustness under ill-conditioned scenarios.
+        Uses ridge regression: solve (A^T A + λI)x = A^T b
+
+        Parameters:
+        - A (np.ndarray): Coefficient matrix, shape (m, n)
+        - b (np.ndarray): Right-hand side vector, shape (m,)
+        - regularization (float, optional): Regularization parameter λ. If None, computed adaptively.
+
+        Returns:
+        - x (np.ndarray): Solution vector, shape (n,)
+        """
+        # Compute SVD for adaptive regularization
+        U, S, Vt = np.linalg.svd(A, full_matrices=False)
+        
+        if regularization is None:
+            # Adaptive regularization based on singular values
+            # Set λ to be a fraction of the smallest non-zero singular value
+            epsilon = 1e-10
+            S_nonzero = S[S > epsilon]
+            if len(S_nonzero) > 0:
+                regularization = 0.01 * np.min(S_nonzero)
+            else:
+                regularization = 1e-6
+        
+        # Apply Tikhonov regularization using normal equations
+        # (A^T A + λI)x = A^T b
+        AtA = A.T @ A
+        Atb = A.T @ b
+        n = AtA.shape[0]
+        AtA_regularized = AtA + regularization * np.eye(n)
+        
+        # Solve the regularized system
+        x = np.linalg.solve(AtA_regularized, Atb)
+        
+        return x
+
+    @staticmethod
     @timeit
     def ransac_solve(uvw: np.ndarray, xyz: np.ndarray, bearing: np.ndarray,
                      num_iterations: int = 500, threshold: float = 1e-2)-> Tuple[np.ndarray, np.ndarray, float]:
@@ -408,10 +460,19 @@ class bearing_linear_solver():
         A = bearing_linear_solver.compute_A_matrix(uvw[0,:], uvw[1,:], uvw[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
         b = bearing_linear_solver.compute_b_vector(xyz[0,:], xyz[1,:], xyz[2,:], bearing_angle[1,:], bearing_angle[0,:], bearing_angle.shape[1])
 
-        # Solve for x using least squares
+        # Check condition number to assess numerical stability
+        cond_num = bearing_linear_solver.compute_condition_number(A)
+        logger.debug(f'Condition number of A matrix: {cond_num:.2e}')
+        
+        # Solve for x using least squares with automatic regularization for ill-conditioned matrices
+        # Use threshold of 1e10 to detect ill-conditioned matrices
         from scipy.linalg import solve, lstsq
-        # x = solve(A, b)
-        x = lstsq(A, b)[0]
+        if cond_num > 1e10:
+            logger.info(f'Ill-conditioned matrix detected (cond={cond_num:.2e}). Applying Tikhonov regularization.')
+            x = bearing_linear_solver.solve_with_regularization(A, b)
+        else:
+            # x = solve(A, b)
+            x = lstsq(A, b)[0]
         logger.debug(f'Solution x: {x}')
 
         R = x[:9].reshape(3, 3)
