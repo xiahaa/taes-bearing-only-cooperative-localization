@@ -813,21 +813,21 @@ class bgpnp():
 
     @staticmethod
     @timeit
-    def solve_new_loss(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
+    def solve_new_loss(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True, enforce_manifold: bool = False) -> Tuple[np.ndarray, np.ndarray, float]:
         # Validate inputs
         bgpnp.validate_inputs(p1, p2, bearing, min_points=4)
         
         M, b, Alph, Cw = bgpnp.prepare_data_new_loss(p1, bearing, p2)
         possible_dims = 6
-        Km = bgpnp.kernel_noise(M, b, dimker=possible_dims)
-        R, t, err, _ = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=sol_iter)
+        Km = bgpnp.kernel_noise(M, b, dimker=possible_dims, use_regularization=enforce_manifold)
+        R, t, err, _ = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=sol_iter, enforce_manifold=enforce_manifold)
 
         return R, t, err
 
 
     @staticmethod
     @timeit
-    def solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
+    def solve(p1: np.ndarray, p2: np.ndarray, bearing: np.ndarray, sol_iter: bool = True, enforce_manifold: bool = False) -> Tuple[np.ndarray, np.ndarray, float]:
         """
         Compute the Bearing Generalized Perspective-n-Point (BGPnP) algorithm.
 
@@ -836,6 +836,9 @@ class bgpnp():
             p2 (np.ndarray): The 3D coordinates of the points in local frame.
             bearing (np.ndarray): The bearing angles of the points.
             sol_iter (bool): Flag indicating whether to perform iterative refinement.
+            enforce_manifold (bool): If True, enforces SO(3) manifold constraints with regularization
+                                    for improved robustness in noisy conditions. This adds constraints
+                                    similar to SDP-SDR but is slower. (default: False for compatibility)
 
         Returns:
             tuple: A tuple containing the rotation matrix (R), translation vector (T), and error (err).
@@ -845,8 +848,9 @@ class bgpnp():
         
         M, b, Alph, Cw = bgpnp.prepare_data(p1, bearing, p2)
         possible_dims = 4
-        Km = bgpnp.kernel_noise(M, b, dimker=possible_dims)
-        R, t, err, _ = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=sol_iter)
+        # Use regularized kernel computation for better noise robustness when enforce_manifold is True
+        Km = bgpnp.kernel_noise(M, b, dimker=possible_dims, use_regularization=enforce_manifold)
+        R, t, err, _ = bgpnp.KernelPnP(Cw, Km, dims=4, sol_iter=sol_iter, enforce_manifold=enforce_manifold)
 
         return R, t, err
 
@@ -950,7 +954,75 @@ class bgpnp():
         return R, b, mc
 
     @staticmethod
-    def KernelPnP(Cw: np.ndarray, Km: np.ndarray, dims: int = 4, sol_iter: bool = True, tol = 1e-6) -> Tuple[np.ndarray, np.ndarray, float]:
+    def project_to_SO3(R: np.ndarray, enforce_det: bool = True) -> np.ndarray:
+        """
+        Project a matrix to the SO(3) manifold (proper rotation matrices).
+        
+        This method enforces the manifold constraints:
+        - Orthogonality: R^T R = I
+        - Determinant: det(R) = +1 (if enforce_det=True)
+        
+        Args:
+            R (np.ndarray): Input 3x3 matrix to project
+            enforce_det (bool): If True, ensures det(R) = +1 (proper rotation)
+                               If False, allows det(R) = -1 (reflection)
+        
+        Returns:
+            np.ndarray: Projected rotation matrix on SO(3)
+        """
+        # Use SVD to find nearest orthogonal matrix
+        U, S, Vt = np.linalg.svd(R)
+        
+        if enforce_det:
+            # Ensure determinant is +1 (proper rotation, not reflection)
+            # This is a key constraint that SDP-SDR enforces via Q13-Q21
+            det_UV = np.linalg.det(U @ Vt)
+            if det_UV < 0:
+                # Flip the sign of the last column of U to ensure det = +1
+                U[:, -1] *= -1
+        
+        # Compute nearest orthogonal matrix: R_optimal = U @ Vt
+        R_optimal = U @ Vt
+        
+        return R_optimal
+
+    @staticmethod
+    def validate_rotation_matrix(R: np.ndarray, tol: float = 1e-6) -> bool:
+        """
+        Validate that a matrix satisfies rotation matrix properties.
+        
+        Checks:
+        - R is 3x3
+        - R^T R ≈ I (orthogonality)
+        - det(R) ≈ +1 (proper rotation)
+        
+        Args:
+            R (np.ndarray): Matrix to validate
+            tol (float): Tolerance for checks
+            
+        Returns:
+            bool: True if R is a valid rotation matrix
+        """
+        if R.shape != (3, 3):
+            return False
+        
+        # Check orthogonality: R^T R = I
+        RtR = R.T @ R
+        I = np.eye(3)
+        if not np.allclose(RtR, I, atol=tol):
+            logger.debug(f'Orthogonality check failed: ||R^T R - I|| = {np.linalg.norm(RtR - I)}')
+            return False
+        
+        # Check determinant = +1
+        det = np.linalg.det(R)
+        if not np.isclose(det, 1.0, atol=tol):
+            logger.debug(f'Determinant check failed: det(R) = {det}')
+            return False
+        
+        return True
+
+    @staticmethod
+    def KernelPnP(Cw: np.ndarray, Km: np.ndarray, dims: int = 4, sol_iter: bool = True, tol = 1e-6, enforce_manifold: bool = False) -> Tuple[np.ndarray, np.ndarray, float]:
         """
         Computes the Kernel Perspective-n-Point (KernelPnP) algorithm.
 
@@ -959,6 +1031,8 @@ class bgpnp():
             Km (numpy.ndarray): The kernel matrix.
             dims (int): The number of dimensions.
             sol_iter (bool): Flag indicating whether to perform iterative refinement.
+            tol (float): Tolerance for convergence.
+            enforce_manifold (bool): If True, enforces SO(3) manifold constraints for robustness.
 
         Returns:
             tuple: A tuple containing the rotation matrix (R), translation vector (T), and error (err).
@@ -976,6 +1050,11 @@ class bgpnp():
 
         # procrustes solution for the first kernel vector
         R, b, mc = bgpnp.myProcrustes(X, vK)
+        
+        # Apply SO(3) manifold projection for robustness in noisy conditions
+        if enforce_manifold:
+            R = bgpnp.project_to_SO3(R, enforce_det=True)
+            logger.debug(f'Initial R projected to SO(3), det(R)={np.linalg.det(R):.6f}')
 
         solV = b * vK
         solR = R
@@ -1004,6 +1083,15 @@ class bgpnp():
                 else:
                     # procrustes solution
                     R, b, mc = bgpnp.myProcrustes(X, newV)
+                    
+                    # Apply SO(3) manifold projection for robustness
+                    if enforce_manifold:
+                        R = bgpnp.project_to_SO3(R, enforce_det=True)
+                        # Validate rotation matrix periodically
+                        if iter % 50 == 0:
+                            is_valid = bgpnp.validate_rotation_matrix(R, tol=1e-5)
+                            logger.debug(f'Iteration {iter}: R valid={is_valid}')
+                    
                     solV = b * newV
                     solVec = newV
                     solmc = mc
@@ -1011,6 +1099,12 @@ class bgpnp():
                     err = newerr
 
         R = solR
+        
+        # Final manifold projection to ensure solution is on SO(3)
+        if enforce_manifold:
+            R = bgpnp.project_to_SO3(R, enforce_det=True)
+            logger.debug(f'Final R projected to SO(3), det(R)={np.linalg.det(R):.6f}')
+        
         mV = np.mean(solV, axis=1)
 
         T = mV - R @ X['mP']
@@ -1018,7 +1112,7 @@ class bgpnp():
         return R, T, err, solVec
 
     @staticmethod
-    def kernel_noise(M: np.ndarray, b: np.ndarray, dimker: int = 4) -> np.ndarray:
+    def kernel_noise(M: np.ndarray, b: np.ndarray, dimker: int = 4, use_regularization: bool = False, reg_lambda: float = 0.0) -> np.ndarray:
         """
         Computes the kernel noise matrix for a given input matrix M and vector b.
 
@@ -1026,6 +1120,8 @@ class bgpnp():
         - M: Input matrix of shape (3n, 12)
         - b: Input vector of shape (3n,)
         - dimker: Dimension of the kernel noise matrix (default: 4)
+        - use_regularization: If True, uses Tikhonov regularization for better noise robustness
+        - reg_lambda: Regularization parameter for Tikhonov regularization (0 = auto)
 
         Returns:
         - K: Kernel noise matrix of shape (12, dimker)
@@ -1033,17 +1129,42 @@ class bgpnp():
         K = np.zeros((M.shape[1], dimker))
         U, S, V = np.linalg.svd(M, full_matrices=False)
         V = V.T
-        logger.debug(f'U: {V}')
+        logger.debug(f'Singular values: {S}')
 
         K[:, 0:dimker-1] = V[:, -dimker+1:]
-        # logger.debug(f'K: {K}')
-        # logger.debug(f'np.linalg.pinv(M) @ b: {np.linalg.pinv(M) @ b}')
-        # if np.linalg.matrix_rank(M) < 12:
-            # K[:, -1] = np.linalg.pinv(M) @ b
-        # else:
-            # K[:, -1] = np.linalg.pinv(M) @ b
-
-        K[:, -1] = lstsq(M, b)[0]#np.linalg.pinv(M) @ b
+        
+        # Compute the last kernel vector more robustly
+        if use_regularization:
+            # Adaptive regularization based on condition number
+            cond_M = S[0] / (S[-1] + 1e-15)
+            
+            # Only apply regularization if condition number is high (ill-conditioned)
+            if cond_M > 1e8 or reg_lambda > 0:
+                # Use Tikhonov regularization for noise robustness
+                MtM = M.T @ M
+                Mtb = M.T @ b
+                n = MtM.shape[0]
+                
+                # Adaptive regularization based on smallest singular value
+                if reg_lambda == 0:
+                    # Use a very small fraction of the smallest singular value
+                    # This helps in noise but doesn't over-regularize
+                    S_nonzero = S[S > 1e-10]
+                    if len(S_nonzero) > 0:
+                        reg_lambda = 0.001 * np.min(S_nonzero)  # Reduced from 0.01 to 0.001
+                    else:
+                        reg_lambda = 1e-8
+                
+                MtM_reg = MtM + reg_lambda * np.eye(n)
+                K[:, -1] = np.linalg.solve(MtM_reg, Mtb)
+                logger.debug(f'Using regularized lstsq with lambda={reg_lambda:.6e}, cond={cond_M:.2e}')
+            else:
+                # Well-conditioned, use standard least squares
+                K[:, -1] = lstsq(M, b)[0]
+                logger.debug(f'Using standard lstsq, cond={cond_M:.2e}')
+        else:
+            # Standard least squares
+            K[:, -1] = lstsq(M, b)[0]
 
         return K
 
