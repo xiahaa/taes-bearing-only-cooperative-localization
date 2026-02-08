@@ -92,6 +92,7 @@ class GuidanceLaw:
             FIM = FisherInformationAnalyzer.compute_fisher_information_matrix(uvw, R, t)
             eigenvalues, eigenvectors = np.linalg.eigh(FIM)
             # Move in direction of smallest eigenvalue (worst observable direction)
+            # FIM structure: [rotation(0:3), translation(3:6)]
             optimal_direction = eigenvectors[3:6, 0]  # Translation part of smallest eigenvector
             optimal_direction = optimal_direction / (np.linalg.norm(optimal_direction) + 1e-10)
         
@@ -290,9 +291,11 @@ class TwoAgentPursuitGuidance:
             if closing_speed > 0:
                 time_to_intercept = los_distance / closing_speed
             else:
-                time_to_intercept = 1.0  # Default
+                # Default: 1 second lookahead for prediction stability
+                time_to_intercept = 1.0
         else:
-            time_to_intercept = 1.0  # Default
+            # Default: 1 second lookahead when cannot catch up
+            time_to_intercept = 1.0
         
         # Predicted target position
         predicted_position = target_position + target_velocity * time_to_intercept

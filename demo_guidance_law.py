@@ -75,7 +75,10 @@ def demo_universal_guidance_law():
         improvement = obj_new - obj_value
         print(f"  After moving 1 unit in optimal direction:")
         print(f"    New objective value: {obj_new:.4e}")
-        print(f"    Improvement: {improvement:.4e} ({improvement/abs(obj_value)*100:.2f}%)")
+        if abs(obj_value) > 1e-10:
+            print(f"    Improvement: {improvement:.4e} ({improvement/abs(obj_value)*100:.2f}%)")
+        else:
+            print(f"    Improvement: {improvement:.4e}")
     
     # Demonstrate trajectory evaluation
     print("\n--- Trajectory Evaluation ---")

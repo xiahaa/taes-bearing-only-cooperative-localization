@@ -123,7 +123,9 @@ class TestGuidanceLaw(unittest.TestCase):
         # New objective should be better (higher for trace)
         # Note: This may not always hold perfectly due to nonlinearity,
         # but should hold for small steps
-        self.assertGreaterEqual(new_obj, current_obj - 1e-3)  # Allow small tolerance
+        # Use relative tolerance based on objective magnitude
+        tolerance = max(abs(current_obj) * 0.01, 1e-6)  # 1% relative or absolute minimum
+        self.assertGreaterEqual(new_obj, current_obj - tolerance)
 
 
 class TestTwoAgentPursuitGuidance(unittest.TestCase):
