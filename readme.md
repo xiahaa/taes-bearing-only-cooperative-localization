@@ -420,16 +420,64 @@ x = bearing_linear_solver.solve_with_regularization(A, b, regularization=0.001)
 - **Noisy bearings (> 1° noise)**: Use `bgpnp.solve(enforce_manifold=True)` or SDP-SDR
 - **Outlier-prone data**: Use any RANSAC variant
 - **Ill-conditioned bearing distributions**: The linear solver now handles this automatically
+- **Observability analysis**: Use Fisher Information Matrix analysis to guide trajectory planning
+
+## Fisher Information Matrix Analysis
+
+The repository now includes comprehensive Fisher Information Matrix (FIM) analysis tools to assess and improve observability in bearing-only localization. See [FIM_ANALYSIS.md](FIM_ANALYSIS.md) for detailed documentation.
+
+### Key Features
+
+- **Observability Assessment**: Compute FIM to quantify how well bearing measurements constrain the pose
+- **FIM-Condition Number Relationship**: Demonstrates that `cond(FIM) ≈ [cond(J)]^2`
+- **Trajectory Guidance**: Use FIM metrics to optimize agent trajectories for better observability
+- **Multiple Criteria**: Support for A-optimality (trace), D-optimality (determinant), E-optimality (min eigenvalue)
+
+### Quick Start
+
+```python
+from src.fisher_information_matrix import FisherInformationAnalyzer
+
+# Analyze observability
+analysis = FisherInformationAnalyzer.analyze_observability(uvw, R, t)
+print(analysis['analysis'])
+
+# Get trajectory improvement suggestions
+suggestions = FisherInformationAnalyzer.suggest_improvements(uvw, R, t)
+print(suggestions['rotation_suggestion'])
+
+# Compute guidance objective
+objective = FisherInformationAnalyzer.compute_condition_based_objective(
+    uvw, R, t, objective_type='trace'
+)
+```
+
+### Demonstrations
+
+Run the comprehensive FIM analysis demonstration:
+```bash
+python demo_fim_analysis.py
+```
+
+This shows:
+1. Mathematical relationship between FIM and condition number
+2. Observability comparison for different bearing configurations
+3. Condition number-based improvement heuristics
+4. Guidance strategies for trajectory optimization
 
 ## Project Structure
 
 ```
 .
-├── readme.md              # This file
-├── requirements.txt       # Python dependencies
+├── readme.md                           # This file
+├── FIM_ANALYSIS.md                     # Fisher Information Matrix documentation
+├── requirements.txt                    # Python dependencies
+├── demo_fim_analysis.py                # FIM analysis demonstration
+├── test_fisher_information.py          # FIM tests
 ├── src/
 │   ├── bearing_only_solver.py          # Main algorithms
 │   ├── bearing_only_solver_3andmore.py # Extended solver variants
+│   ├── fisher_information_matrix.py    # FIM analysis tools
 │   ├── exp_tcst_data.py                # TCST benchmark
 │   ├── exp_random_data.py              # Synthetic data benchmark
 │   ├── exp_outlier_test.py             # Outlier robustness test
@@ -438,7 +486,7 @@ x = bearing_linear_solver.solve_with_regularization(A, b, regularization=0.001)
 │   ├── test_bgpnp.py                   # BGPnP unit tests
 │   └── test_load_data.py               # Data loading tests
 └── taes/
-    └── simu_0.txt         # Example simulation data
+    └── simu_0.txt                      # Example simulation data
 ```
 
 ## References
