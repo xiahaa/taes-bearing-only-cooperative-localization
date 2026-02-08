@@ -18,7 +18,7 @@ References:
 """
 
 import numpy as np
-from typing import Tuple, Dict, Optional
+from typing import Tuple, Dict, Optional, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -180,7 +180,7 @@ class FisherInformationAnalyzer:
         R: np.ndarray,
         t: np.ndarray,
         measurement_noise_std: float = 0.01
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Comprehensive observability analysis using FIM and condition number.
         
@@ -292,7 +292,7 @@ class FisherInformationAnalyzer:
         R: np.ndarray,
         t: np.ndarray,
         measurement_noise_std: float = 0.01
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Suggest trajectory modifications to improve observability.
         
