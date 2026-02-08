@@ -125,7 +125,7 @@ The `bgpnp` solver can now enforce **SO(3) manifold constraints** similar to the
 | 2° noise    | 171.5°        | 77.8°         | **55%**     |
 | 5° noise    | 159.8°        | 88.9°         | **44%**     |
 
-**Trade-off**: Slightly slower (~100x slower due to iterations) but maintains accuracy in high noise.
+**Trade-off**: Slower (~100-300x slower due to regularization and iterations in noisy conditions) but significantly more accurate in high noise scenarios.
 
 #### Class Methods
 

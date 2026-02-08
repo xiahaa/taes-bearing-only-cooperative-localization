@@ -1087,7 +1087,8 @@ class bgpnp():
                     # Apply SO(3) manifold projection for robustness
                     if enforce_manifold:
                         R = bgpnp.project_to_SO3(R, enforce_det=True)
-                        # Validate rotation matrix periodically
+                        # Validate rotation matrix periodically (every 50 iterations)
+                        # This frequency balances validation overhead vs early error detection
                         if iter % 50 == 0:
                             is_valid = bgpnp.validate_rotation_matrix(R, tol=1e-5)
                             logger.debug(f'Iteration {iter}: R valid={is_valid}')
@@ -1136,6 +1137,8 @@ class bgpnp():
         # Compute the last kernel vector more robustly
         if use_regularization:
             # Adaptive regularization based on condition number
+            # Threshold of 1e8 chosen empirically - below this, standard lstsq is stable
+            # Above 1e8, noise amplification becomes significant
             cond_M = S[0] / (S[-1] + 1e-15)
             
             # Only apply regularization if condition number is high (ill-conditioned)
@@ -1148,10 +1151,11 @@ class bgpnp():
                 # Adaptive regularization based on smallest singular value
                 if reg_lambda == 0:
                     # Use a very small fraction of the smallest singular value
-                    # This helps in noise but doesn't over-regularize
+                    # Tuned to 0.001 (reduced from 0.01) to balance robustness vs accuracy
+                    # Smaller value reduces over-regularization on clean data
                     S_nonzero = S[S > 1e-10]
                     if len(S_nonzero) > 0:
-                        reg_lambda = 0.001 * np.min(S_nonzero)  # Reduced from 0.01 to 0.001
+                        reg_lambda = 0.001 * np.min(S_nonzero)
                     else:
                         reg_lambda = 1e-8
                 
