@@ -465,19 +465,103 @@ This shows:
 3. Condition number-based improvement heuristics
 4. Guidance strategies for trajectory optimization
 
+## Guidance Law Derivation from Condition Matrix
+
+Building on the FIM analysis, the repository now includes **guidance laws** derived from the condition matrix to optimize observability during agent motion. See [GUIDANCE_LAW.md](GUIDANCE_LAW.md) for complete documentation.
+
+### Key Features
+
+- **Universal Guidance Law**: Derives optimal motion directions to maximize observability
+  - Multiple objectives: trace, determinant, minimum eigenvalue, inverse condition number
+  - Gradient-based optimization for real-time application
+  
+- **Two-Agent Pursuit Guidance**: Specialized guidance for pursuit scenarios
+  - One agent flies straight at constant velocity (target)
+  - Another agent pursues while optimizing observability (pursuer)
+  - Balances pursuit objective with observability improvement
+
+### Quick Start - Universal Guidance
+
+```python
+from src.guidance_law import GuidanceLaw
+import numpy as np
+
+# Landmarks and current pose
+uvw = np.random.randn(3, 8) * 10
+R = np.eye(3)
+t = np.array([5.0, 5.0, 5.0])
+
+# Compute optimal direction to improve observability
+direction, obj_value = GuidanceLaw.compute_optimal_direction(
+    uvw, R, t, objective_type='trace'
+)
+
+# Generate guidance command
+velocity = np.array([2.0, 0.0, 0.0])
+acceleration = GuidanceLaw.compute_guidance_command(
+    uvw, R, t, velocity,
+    objective_type='trace',
+    max_acceleration=1.0
+)
+```
+
+### Quick Start - Two-Agent Pursuit
+
+```python
+from src.guidance_law import TwoAgentPursuitGuidance
+
+# Create pursuit guidance (balances pursuit and observability)
+guidance = TwoAgentPursuitGuidance(
+    pursuer_speed=12.0,
+    pursuit_gain=0.6,        # 60% pursuit
+    observability_gain=0.4,  # 40% observability
+    objective_type='trace'
+)
+
+# Simulate pursuit scenario
+results = guidance.simulate_pursuit(
+    uvw, R,
+    pursuer_position_0=np.array([0, 0, 0]),
+    target_position_0=np.array([20, 0, 0]),
+    target_velocity=np.array([2, 0.5, 0]),
+    duration=10.0,
+    dt=0.1
+)
+
+print(f"Final distance: {results['distances'][-1]:.2f}")
+print(f"Average observability: {np.mean(results['observability_metrics']['determinants']):.2e}")
+```
+
+### Demonstrations
+
+Run the guidance law demonstration:
+```bash
+python demo_guidance_law.py
+```
+
+This shows:
+1. Universal guidance law with different FIM objectives
+2. Two-agent pursuit with multiple strategies (pure pursuit, pure observability, balanced)
+3. Mathematical properties of guidance laws
+4. Trade-offs between pursuit and observability
+
 ## Project Structure
 
 ```
 .
 ├── readme.md                           # This file
 ├── FIM_ANALYSIS.md                     # Fisher Information Matrix documentation
+├── GUIDANCE_LAW.md                     # Guidance law documentation
 ├── requirements.txt                    # Python dependencies
 ├── demo_fim_analysis.py                # FIM analysis demonstration
+├── demo_guidance_law.py                # Guidance law demonstration
 ├── test_fisher_information.py          # FIM tests
+├── test_guidance_law.py                # Guidance law tests
 ├── src/
 │   ├── bearing_only_solver.py          # Main algorithms
 │   ├── bearing_only_solver_3andmore.py # Extended solver variants
 │   ├── fisher_information_matrix.py    # FIM analysis tools
+│   ├── guidance_law.py                 # Guidance law implementation
 │   ├── exp_tcst_data.py                # TCST benchmark
 │   ├── exp_random_data.py              # Synthetic data benchmark
 │   ├── exp_outlier_test.py             # Outlier robustness test
