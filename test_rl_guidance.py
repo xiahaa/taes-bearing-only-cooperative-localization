@@ -259,7 +259,7 @@ class TestPPOAgent(unittest.TestCase):
         # Store some transitions
         for _ in range(5):
             self.agent.store_transition(
-                np.random.randn(15),
+                np.random.randn(16),
                 np.random.randn(3),
                 1.0, 0.5, -1.5
             )

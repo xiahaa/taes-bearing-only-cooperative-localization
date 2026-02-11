@@ -111,13 +111,13 @@ where:
 Uses Proximal Policy Optimization (PPO) algorithm:
 
 **Policy Network (Actor):**
-- Input: State (15D)
+- Input: State (16D)
 - Hidden: 2 layers, 64 units each, ReLU activation
 - Output: Mean action (3D), tanh activation
 - Exploration: Gaussian noise
 
 **Value Network (Critic):**
-- Input: State (15D)
+- Input: State (16D)
 - Hidden: 2 layers, 64 units each, ReLU activation
 - Output: Value estimate (1D)
 

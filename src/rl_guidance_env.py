@@ -185,7 +185,7 @@ class GuidanceEnvironment:
             [log_det],               # [10]
             [normalized_distance],    # [11]
             [angle_to_target],       # [12]
-            bearing_features         # [13:15]
+            bearing_features         # [13:16] (3 elements)
         ])
         
         return state
