@@ -545,23 +545,98 @@ This shows:
 3. Mathematical properties of guidance laws
 4. Trade-offs between pursuit and observability
 
+## Reinforcement Learning for Guidance Design
+
+**NEW**: The repository now includes **RL-based guidance** that learns optimal policies from data instead of relying on hand-crafted heuristics. See [RL_GUIDANCE.md](RL_GUIDANCE.md) for complete documentation.
+
+### Key Advantages
+
+- **Data-Driven**: Learns from experience, not manual heuristic design
+- **Multi-Objective**: Automatically balances observability, pursuit, and efficiency
+- **Generalizable**: Single trained model works across diverse scenarios
+- **Discoverable**: Can find strategies beyond human intuition
+- **Modern Paradigm**: Aligns with modern machine learning approaches
+
+### Quick Start - RL Guidance
+
+```python
+from src.rl_based_guidance import RLGuidanceLaw
+
+# Load trained RL agent
+guidance = RLGuidanceLaw(model_path='models/rl_guidance_agent.pkl')
+
+# Use exactly like heuristic guidance (drop-in replacement)
+direction, _ = guidance.compute_optimal_direction(uvw, R, t)
+
+# Or compute acceleration command
+accel = guidance.compute_guidance_command(
+    uvw, R, t, current_velocity,
+    max_acceleration=1.0
+)
+```
+
+### Training Your Own Model
+
+```bash
+# Train RL agent (1000 episodes)
+python train_rl_guidance.py --episodes 1000
+
+# Train with custom parameters
+python train_rl_guidance.py \
+    --episodes 2000 \
+    --hidden-dim 128 \
+    --learning-rate 1e-4 \
+    --model-path models/my_agent.pkl
+```
+
+### Demonstrations
+
+Run the RL guidance demonstration:
+```bash
+python demo_rl_guidance.py
+```
+
+This shows:
+1. RL vs heuristic guidance comparison
+2. RL training environment and process
+3. Key advantages of data-driven approach
+4. Performance improvements
+
+### Comparison: Heuristic vs RL
+
+| Aspect | Heuristic Guidance | RL-Based Guidance |
+|--------|-------------------|-------------------|
+| Design | Manual expert design | Automatic from data |
+| Objectives | Single (trace, det, etc.) | Multi-objective balance |
+| Adaptability | Fixed strategy | Learns from experience |
+| Generalization | Case-by-case tuning | Universal model |
+| Discovery | Limited to known strategies | Can find novel strategies |
+| Paradigm | Traditional optimization | Modern machine learning |
+
 ## Project Structure
 
 ```
 .
 ├── readme.md                           # This file
 ├── FIM_ANALYSIS.md                     # Fisher Information Matrix documentation
-├── GUIDANCE_LAW.md                     # Guidance law documentation
+├── GUIDANCE_LAW.md                     # Heuristic guidance law documentation
+├── RL_GUIDANCE.md                      # RL-based guidance documentation (NEW)
 ├── requirements.txt                    # Python dependencies
 ├── demo_fim_analysis.py                # FIM analysis demonstration
-├── demo_guidance_law.py                # Guidance law demonstration
+├── demo_guidance_law.py                # Heuristic guidance demonstration
+├── demo_rl_guidance.py                 # RL guidance demonstration (NEW)
+├── train_rl_guidance.py                # RL agent training script (NEW)
 ├── test_fisher_information.py          # FIM tests
-├── test_guidance_law.py                # Guidance law tests
+├── test_guidance_law.py                # Heuristic guidance tests
+├── test_rl_guidance.py                 # RL guidance tests (NEW)
 ├── src/
 │   ├── bearing_only_solver.py          # Main algorithms
 │   ├── bearing_only_solver_3andmore.py # Extended solver variants
 │   ├── fisher_information_matrix.py    # FIM analysis tools
-│   ├── guidance_law.py                 # Guidance law implementation
+│   ├── guidance_law.py                 # Heuristic guidance implementation
+│   ├── rl_guidance_env.py              # RL training environment (NEW)
+│   ├── rl_guidance_agent.py            # RL agent (PPO) implementation (NEW)
+│   ├── rl_based_guidance.py            # RL guidance integration (NEW)
 │   ├── exp_tcst_data.py                # TCST benchmark
 │   ├── exp_random_data.py              # Synthetic data benchmark
 │   ├── exp_outlier_test.py             # Outlier robustness test
@@ -569,6 +644,7 @@ This shows:
 │   ├── load_data.py                    # Data loading utilities
 │   ├── test_bgpnp.py                   # BGPnP unit tests
 │   └── test_load_data.py               # Data loading tests
+├── models/                             # Trained RL models (NEW)
 └── taes/
     └── simu_0.txt                      # Example simulation data
 ```
